@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(gunzip -c \"/Users/armando/.claude/projects/-Users-armando-Progra-ai-dim-monitoring/35e8fe69-b10f-47a3-8e62-3e001fd91447/tool-results/webfetch-1778172071685-1d3gc7.bin\" 2>/dev/null | strings | head -500)",
+      "Bash(gunzip -c \"/Users/armando/.claude/projects/-Users-armando-Progra-ai-dim-monitoring/35e8fe69-b10f-47a3-8e62-3e001fd91447/tool-results/webfetch-1778172071685-1d3gc7.bin\" 2>/dev/null | tar -x -O --include=\"*.css\" --include=\"*.jsx\" --include=\"*.html\" --include=\"*.js\" 2>/dev/null | head -2000)",
+      "Bash(cd /Users/armando/Progra/ai/dim/monitoring/backend && go mod tidy 2>&1)",
+      "Bash(cd /Users/armando/Progra/ai/dim/monitoring/frontend && npm install 2>&1 | tail -5)",
+      "Bash(go build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(chmod +x /Users/armando/Progra/ai/dim/monitoring/start.sh)"
+    ]
+  }
+}
