@@ -1,0 +1,36 @@
+# Build / IDE
+.DS_Store
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Backend
+backend/sentry
+backend/data/cameras.json.bak
+
+# Face-service
+face-service/.venv/
+face-service/__pycache__/
+face-service/**/__pycache__/
+face-service/*.egg-info/
+face-service/data/face.db
+face-service/data/face.db-journal
+face-service/data/face.db-wal
+face-service/data/face.db-shm
+face-service/data/photos/
+
+# Tests
+tests/**/__pycache__/
+
+# Runtime artifacts
+/tmp/sentry/
+
+__pycache__*
+.cache*
+
+.venv/
+.claude/
+
+
+CLAUDE.md
+.claude/settings.local.json

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Sidebar } from './components/layout/Sidebar'
 import { Dashboard } from './pages/Dashboard'
+import { Settings } from './pages/Settings'
 import { SystemHealth } from './pages/SystemHealth'
 
 const queryClient = new QueryClient({
@@ -35,7 +36,7 @@ export default function App() {
               <Route path="/"         element={<Dashboard />} />
               <Route path="/health"   element={<SystemHealth />} />
               <Route path="/alerts"   element={<PlaceholderPage title="Alerts" />} />
-              <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
+              <Route path="/settings" element={<Settings />} />
             </Routes>
           </main>
         </div>

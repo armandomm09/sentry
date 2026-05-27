@@ -79,21 +79,29 @@ func (m *Manager) runLoop(ctx context.Context, camera *models.Camera, entry *str
 		m.setStatus(camera.ID, "reconnecting", "")
 		playlist := filepath.Join(outDir, "stream.m3u8")
 
+		// pix_fmt yuv420p + profile main = required for browser MSE playback;
+		// many RTSP sources (incl. our webcam test rig) deliver 4:2:2, which
+		// libx264 will happily pass through and which no browser will decode.
 		cmd := exec.CommandContext(ctx, "ffmpeg",
 			"-loglevel", "error",
+			"-fflags", "nobuffer",
 			"-rtsp_transport", "tcp",
 			"-i", camera.RTSPURL,
+			"-map", "0:v:0",
 			"-c:v", "libx264",
 			"-preset", "ultrafast",
 			"-tune", "zerolatency",
+			"-profile:v", "main",
+			"-pix_fmt", "yuv420p",
 			"-g", "30",
+			"-keyint_min", "30",
 			"-sc_threshold", "0",
-			"-c:a", "aac",
-			"-b:a", "128k",
+			"-an",
 			"-f", "hls",
 			"-hls_time", "2",
 			"-hls_list_size", "5",
-			"-hls_flags", "delete_segments+append_list",
+			"-hls_flags", "delete_segments+append_list+independent_segments",
+			"-hls_segment_type", "mpegts",
 			"-hls_segment_filename", filepath.Join(outDir, "seg%05d.ts"),
 			playlist,
 		)

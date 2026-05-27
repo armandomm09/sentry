@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
+	"github.com/dim/sentry/backend/face"
 	"github.com/dim/sentry/backend/handlers"
 	"github.com/dim/sentry/backend/storage"
 	"github.com/dim/sentry/backend/stream"
@@ -15,6 +18,7 @@ import (
 func main() {
 	dataDir := envOr("SENTRY_DATA_DIR", "./data")
 	port := envOr("PORT", "8080")
+	faceURL := envOr("FACE_SERVICE_URL", "http://127.0.0.1:8090")
 
 	store, err := storage.NewJSONStore(dataDir)
 	if err != nil {
@@ -22,9 +26,25 @@ func main() {
 	}
 
 	manager := stream.NewManager()
+	faceClient := face.NewClient(faceURL)
+	faceProxy, err := face.NewProxy(faceClient)
+	if err != nil {
+		log.Fatalf("face proxy init: %v", err)
+	}
 
 	// Auto-start streams for cameras with auto_reconnect=true
 	manager.StartAll(store.List())
+
+	// Best-effort sync of face-rec workers. Runs in a goroutine so a slow
+	// face-service can't delay the HTTP server coming up. We also run a
+	// periodic reconciler so the pipeline self-heals if face-service is
+	// restarted while the Go backend is up — its worker pool is in-memory only.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		face.SyncFromStore(ctx, faceClient, store.List())
+	}()
+	go face.RunSyncLoop(context.Background(), faceClient, store, 30*time.Second)
 
 	r := gin.Default()
 
@@ -45,7 +65,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	h := handlers.NewCameraHandler(store, manager)
+	h := handlers.NewCameraHandler(store, manager, faceClient)
 
 	api := r.Group("/api")
 	{
@@ -63,6 +83,11 @@ func main() {
 		}
 
 		api.GET("/streams", h.AllStreamStatuses)
+
+		// Face-recognition surface: reverse-proxied to the Python service.
+		// The proxy strips /api so /api/persons/* -> face-service /persons/*.
+		api.Any("/persons", faceProxy.Handler())
+		api.Any("/persons/*proxyPath", faceProxy.Handler())
 	}
 
 	log.Printf("Sentry backend listening on :%s", port)

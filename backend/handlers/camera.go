@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"context"
+	"log"
 	"net/http"
 	"time"
 
+	"github.com/dim/sentry/backend/face"
 	"github.com/dim/sentry/backend/models"
 	"github.com/dim/sentry/backend/storage"
 	"github.com/dim/sentry/backend/stream"
@@ -14,10 +17,30 @@ import (
 type CameraHandler struct {
 	store   *storage.JSONStore
 	manager *stream.Manager
+	face    *face.Client
 }
 
-func NewCameraHandler(store *storage.JSONStore, manager *stream.Manager) *CameraHandler {
-	return &CameraHandler{store: store, manager: manager}
+func NewCameraHandler(store *storage.JSONStore, manager *stream.Manager, faceClient *face.Client) *CameraHandler {
+	return &CameraHandler{store: store, manager: manager, face: faceClient}
+}
+
+// syncFaceRecognition reconciles face-service's view of a camera with the stored
+// flag. Errors are logged but never block the camera operation — face-rec is a
+// best-effort side channel; HLS streaming and CRUD must keep working even if
+// the Python service is down.
+func (h *CameraHandler) syncFaceRecognition(ctx context.Context, cam *models.Camera) {
+	if h.face == nil {
+		return
+	}
+	var err error
+	if cam.FaceRecognitionEnabled {
+		err = h.face.EnableCamera(ctx, cam.ID, cam.RTSPURL)
+	} else {
+		err = h.face.DisableCamera(ctx, cam.ID)
+	}
+	if err != nil {
+		log.Printf("[face] sync camera %s (enabled=%v): %v", cam.ID, cam.FaceRecognitionEnabled, err)
+	}
 }
 
 func (h *CameraHandler) List(c *gin.Context) {
@@ -61,12 +84,13 @@ func (h *CameraHandler) Create(c *gin.Context) {
 	}
 
 	cam := &models.Camera{
-		ID:            uuid.New().String(),
-		Name:          req.Name,
-		Location:      req.Location,
-		RTSPURL:       req.RTSPURL,
-		AutoReconnect: req.AutoReconnect,
-		CreatedAt:     time.Now(),
+		ID:                     uuid.New().String(),
+		Name:                   req.Name,
+		Location:               req.Location,
+		RTSPURL:                req.RTSPURL,
+		AutoReconnect:          req.AutoReconnect,
+		FaceRecognitionEnabled: req.FaceRecognitionEnabled,
+		CreatedAt:              time.Now(),
 	}
 
 	if err := h.store.Create(cam); err != nil {
@@ -79,6 +103,7 @@ func (h *CameraHandler) Create(c *gin.Context) {
 			// non-fatal — camera is saved, stream will be started manually
 		}
 	}
+	h.syncFaceRecognition(c.Request.Context(), cam)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"camera": cam,
@@ -99,22 +124,35 @@ func (h *CameraHandler) Update(c *gin.Context) {
 		return
 	}
 
+	rtspChanged := false
+	faceToggled := false
 	if req.Name != nil {
 		cam.Name = *req.Name
 	}
 	if req.Location != nil {
 		cam.Location = *req.Location
 	}
-	if req.RTSPURL != nil {
+	if req.RTSPURL != nil && *req.RTSPURL != cam.RTSPURL {
 		cam.RTSPURL = *req.RTSPURL
+		rtspChanged = true
 	}
 	if req.AutoReconnect != nil {
 		cam.AutoReconnect = *req.AutoReconnect
+	}
+	if req.FaceRecognitionEnabled != nil && *req.FaceRecognitionEnabled != cam.FaceRecognitionEnabled {
+		cam.FaceRecognitionEnabled = *req.FaceRecognitionEnabled
+		faceToggled = true
 	}
 
 	if err := h.store.Update(cam); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update camera"})
 		return
+	}
+
+	// Re-sync face-service if face-rec was toggled or if the RTSP URL changed
+	// while face-rec is enabled (worker needs to be recycled with the new URL).
+	if faceToggled || (rtspChanged && cam.FaceRecognitionEnabled) {
+		h.syncFaceRecognition(c.Request.Context(), cam)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -131,6 +169,11 @@ func (h *CameraHandler) Delete(c *gin.Context) {
 	}
 
 	h.manager.Stop(id)
+	if h.face != nil {
+		if err := h.face.DisableCamera(c.Request.Context(), id); err != nil {
+			log.Printf("[face] disable on delete %s: %v", id, err)
+		}
+	}
 
 	if err := h.store.Delete(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete camera"})

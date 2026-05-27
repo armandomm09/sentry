@@ -6,6 +6,7 @@ export interface Camera {
   location: string
   rtsp_url: string
   auto_reconnect: boolean
+  face_recognition_enabled: boolean
   created_at: string
 }
 
@@ -26,4 +27,5 @@ export interface CreateCameraPayload {
   location: string
   rtsp_url: string
   auto_reconnect: boolean
+  face_recognition_enabled?: boolean
 }

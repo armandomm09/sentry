@@ -1,9 +1,9 @@
-import { ArrowLeft, Download, Pause, Play, Settings2, Trash2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { CameraWithStream } from '../../types/camera'
 import { api } from '../../api/client'
 import { Button } from '../ui/Button'
 import { StatusPill } from '../ui/StatusPill'
+import { DetectionOverlay } from './DetectionOverlay'
 import { HLSPlayer } from './HLSPlayer'
 
 interface Props {
@@ -104,7 +104,13 @@ export function CameraView({ camera, onBack }: Props) {
             style={{ aspectRatio: '16/9' }}
           >
             {isLive && camera.stream.hls_url ? (
-              <HLSPlayer src={camera.stream.hls_url} />
+              <>
+                <HLSPlayer src={camera.stream.hls_url} />
+                <DetectionOverlay
+                  cameraId={camera.id}
+                  enabled={camera.face_recognition_enabled}
+                />
+              </>
             ) : (
               <div
                 className="w-full h-full flex flex-col items-center justify-center gap-3"
@@ -151,6 +157,7 @@ export function CameraView({ camera, onBack }: Props) {
             <KVRow label="RTSP URL" value={camera.rtsp_url} mono />
             <KVRow label="Status"   value={status} />
             <KVRow label="Auto-reconnect" value={camera.auto_reconnect ? 'enabled' : 'disabled'} />
+            <KVRow label="Face recognition" value={camera.face_recognition_enabled ? 'enabled' : 'disabled'} />
             <KVRow label="Added"    value={new Date(camera.created_at).toLocaleDateString()} />
           </div>
 
