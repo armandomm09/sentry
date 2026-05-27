@@ -25,7 +25,7 @@ fi
 
 echo "Starting Sentry frontend on :5173…"
 cd "$ROOT/frontend"
-npm run dev &
+npm run dev -- --host 0.0.0.0 &
 FRONTEND_PID=$!
 
 echo ""
