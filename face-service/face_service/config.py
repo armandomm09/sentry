@@ -44,12 +44,18 @@ class Config:
     @staticmethod
     def from_env() -> "Config":
         data_dir = Path(_env("FACE_SERVICE_DATA_DIR", "./data")).resolve()
-        # Provider order: explicit override > CUDA > CoreML > CPU.
+        # Provider order: explicit override > TensorRT > CUDA > CoreML > CPU.
+        # The recognizer filters this list to what the installed ORT build
+        # actually supports, so requesting CUDA on a CPU-only install is a no-op
+        # (not a warning). TensorRT is listed first so DGX Spark / Jetson Thor
+        # picks it up when the GPU wheel includes TRT EP — measurably faster on
+        # Blackwell than the plain CUDA EP.
         providers_env = os.environ.get("FACE_SERVICE_PROVIDERS")
         if providers_env:
             providers = tuple(p.strip() for p in providers_env.split(",") if p.strip())
         else:
             providers = (
+                "TensorrtExecutionProvider",
                 "CUDAExecutionProvider",
                 "CoreMLExecutionProvider",
                 "CPUExecutionProvider",

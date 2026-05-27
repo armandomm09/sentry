@@ -1,0 +1,6 @@
+# Optional GPU acceleration for Linux x86_64 + NVIDIA CUDA.
+#
+# Installed *after* the base requirements.txt. The GPU wheel replaces the CPU
+# `onnxruntime` package (same import name, different binary). Pip handles the
+# swap automatically because the two distributions conflict.
+onnxruntime-gpu==1.19.2

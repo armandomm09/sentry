@@ -35,7 +35,13 @@
       "Bash(pkill -f \"python -m face_service\")",
       "Bash(FACE_SERVICE_LOG_LEVEL=INFO .venv/bin/python -m face_service)",
       "Bash(kill -9 74278)",
-      "Bash(pkill -9 -f \"face-worker\")"
+      "Bash(pkill -9 -f \"face-worker\")",
+      "Bash(bash -n /Users/armando/Progra/ai/dim/monitoring/scripts/setup-face-service.sh)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\([c['stream']['status'] for c in d]\\)\")",
+      "Bash(ffprobe -v error -rtsp_transport tcp -show_entries stream=width,height -of csv=p=0:s=x rtsp://127.0.0.1:8554/webcam)",
+      "Bash(PYTHONDONTWRITEBYTECODE=1 .venv/bin/python *)",
+      "Bash(pkill -9 -f \"face_service\")",
+      "Bash(pkill -9 -f \"spawn_main\")"
     ]
   }
 }

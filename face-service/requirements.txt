@@ -1,7 +1,17 @@
+# Base requirements — CPU-only ONNX Runtime, works on every platform we target
+# (macOS arm64, Linux x86_64, Linux aarch64 / SBSA).
+#
+# GPU acceleration is layered on top by setup-face-service.sh based on platform:
+#   - Linux x86_64 + NVIDIA  → requirements-gpu-x86_64.txt  (PyPI wheel)
+#   - Linux aarch64 + NVIDIA → requirements-gpu-aarch64.txt (NVIDIA pip index)
+#
+# Keeping the GPU wheels OUT of this file is intentional. Mixing `onnxruntime`
+# and `onnxruntime-gpu` in the same env causes import-order surprises, and the
+# GPU wheel for aarch64 is not on PyPI so pip would fail before reaching the
+# rest of this list.
 aiohttp==3.10.10
 numpy>=1.26,<2.0
 opencv-python-headless==4.10.0.84
 insightface==0.7.3
-onnxruntime==1.19.2; sys_platform == "darwin"
-onnxruntime-gpu==1.19.2; sys_platform == "linux"
+onnxruntime==1.19.2
 Pillow==10.4.0

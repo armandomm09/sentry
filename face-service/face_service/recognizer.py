@@ -55,15 +55,31 @@ class Recognizer:
             return
         # Imported lazily so the rest of the service can start without ORT installed.
         from insightface.app import FaceAnalysis  # type: ignore
+        import onnxruntime as ort  # type: ignore
+
+        # Filter the configured provider list down to the ones the installed ORT
+        # build actually supports, preserving preference order. Asking for
+        # CUDAExecutionProvider on a CPU-only build emits a noisy warning per
+        # call; on aarch64 without the GPU wheel we'd also fall through silently
+        # to CPU, which makes debugging GPU-vs-CPU mode harder. Doing the filter
+        # ourselves keeps the logs honest.
+        available = set(ort.get_available_providers())
+        providers = [p for p in self._providers if p in available]
+        if not providers:
+            providers = ["CPUExecutionProvider"]
+
+        # ctx_id picks the device for a GPU EP; -1 means CPU. If we ended up on
+        # CPU only we must pass -1 or InsightFace tries to bind a CUDA context
+        # we don't have.
+        gpu_eps = {"CUDAExecutionProvider", "TensorrtExecutionProvider", "ROCMExecutionProvider"}
+        ctx_id = 0 if any(p in gpu_eps for p in providers) else -1
 
         log.info(
-            "loading InsightFace bundle=%s det_size=%d providers=%s",
-            self._model_pack, self._det_size, self._providers,
+            "loading InsightFace bundle=%s det_size=%d providers=%s ctx_id=%d (available=%s)",
+            self._model_pack, self._det_size, providers, ctx_id, sorted(available),
         )
-        # InsightFace will silently drop unavailable providers, so we can pass them
-        # all and let it pick the best one actually installed.
-        app = FaceAnalysis(name=self._model_pack, providers=list(self._providers))
-        app.prepare(ctx_id=0, det_size=(self._det_size, self._det_size))
+        app = FaceAnalysis(name=self._model_pack, providers=providers)
+        app.prepare(ctx_id=ctx_id, det_size=(self._det_size, self._det_size))
         self._app = app
         log.info("InsightFace ready")
 

@@ -1,0 +1,14 @@
+# Optional GPU acceleration for Linux aarch64 + NVIDIA CUDA (DGX Spark, Jetson
+# Thor, Grace Hopper, etc.).
+#
+# PyPI does not ship onnxruntime-gpu wheels for aarch64. NVIDIA publishes
+# CUDA-enabled aarch64 wheels through their developer pip indexes. The setup
+# script passes the right index via --extra-index-url; this file just pins the
+# package and version we want pulled.
+#
+# Override the index by exporting FACE_SERVICE_ORT_INDEX_URL before running
+# setup-face-service.sh, or use --gpu-index-url. The default the script picks
+# targets CUDA 12.6 builds maintained at jetson-ai-lab.dev, which currently
+# ships wheels for SBSA (Server Base System Architecture) — the same ABI DGX
+# Spark uses.
+onnxruntime-gpu==1.19.2
