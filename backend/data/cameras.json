@@ -1,5 +1,14 @@
 [
   {
+    "id": "8cd9285e-e232-482a-8fa3-1858fe7755e5",
+    "name": "Patio",
+    "location": "Trasero",
+    "rtsp_url": "rtsp://admin:D1macm1l2026@172.17.7.7:554/Streaming/Channels/101",
+    "auto_reconnect": true,
+    "face_recognition_enabled": false,
+    "created_at": "2026-05-28T16:52:34.218400271-06:00"
+  },
+  {
     "id": "9e71f5d6-094b-448d-9efd-32c9ab56eb03",
     "name": "Cuarto de Lavado",
     "location": "Cuarto de Lavado",
@@ -52,14 +61,5 @@
     "auto_reconnect": true,
     "face_recognition_enabled": false,
     "created_at": "2026-05-28T16:38:39.847147988-06:00"
-  },
-  {
-    "id": "8cd9285e-e232-482a-8fa3-1858fe7755e5",
-    "name": "Patio",
-    "location": "Trasero",
-    "rtsp_url": "rtsp://admin:D1macm1l2026@172.17.7.7:554/Streaming/Channels/101",
-    "auto_reconnect": true,
-    "face_recognition_enabled": false,
-    "created_at": "2026-05-28T16:52:34.218400271-06:00"
   }
 ]
