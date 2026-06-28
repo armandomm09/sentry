@@ -34,7 +34,7 @@ func (h *CameraHandler) syncFaceRecognition(ctx context.Context, cam *models.Cam
 	}
 	var err error
 	if cam.FaceRecognitionEnabled {
-		err = h.face.EnableCamera(ctx, cam.ID, cam.RTSPURL)
+		err = h.face.EnableCamera(ctx, cam.ID)
 	} else {
 		err = h.face.DisableCamera(ctx, cam.ID)
 	}
@@ -149,10 +149,15 @@ func (h *CameraHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Re-sync face-service if face-rec was toggled or if the RTSP URL changed
-	// while face-rec is enabled (worker needs to be recycled with the new URL).
-	if faceToggled || (rtspChanged && cam.FaceRecognitionEnabled) {
+	// Re-sync face-service only when the face-rec toggle changes. URL changes
+	// are handled entirely by the Go relay (manager.Start detects the diff and
+	// recycles the relay) — the face worker always connects to the relay, not RTSP.
+	if faceToggled {
 		h.syncFaceRecognition(c.Request.Context(), cam)
+	}
+	if rtspChanged {
+		// Restart the relay with the new source URL.
+		_ = h.manager.Start(cam)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

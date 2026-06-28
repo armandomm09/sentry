@@ -2,181 +2,89 @@ package stream
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/dim/sentry/backend/models"
 )
 
-const (
-	hlsBaseDir      = "/tmp/sentry/streams"
-	reconnectDelay  = 5 * time.Second
-	maxReconnects   = 10
-)
+const hlsBaseDir = "/tmp/sentry/streams"
 
-type streamEntry struct {
-	cancel    context.CancelFunc
-	status    string // "live" | "reconnecting" | "offline"
-	startedAt time.Time
-	errMsg    string
-}
-
+// Manager starts and stops per-camera Relays and exposes frame subscriptions.
 type Manager struct {
-	mu      sync.RWMutex
-	streams map[string]*streamEntry
+	mu     sync.RWMutex
+	relays map[string]*Relay
+	// sourceURL tracks the URL used when the relay was last started so we can
+	// detect changes and recycle the relay automatically.
+	sourceURLs map[string]string
 }
 
 func NewManager() *Manager {
-	return &Manager{streams: make(map[string]*streamEntry)}
+	return &Manager{
+		relays:     make(map[string]*Relay),
+		sourceURLs: make(map[string]string),
+	}
 }
 
-// Start begins streaming a camera. Idempotent — safe to call if already running.
+// Start begins streaming a camera. If already streaming with the same source
+// URL it is a no-op. If the URL changed the old relay is stopped and replaced.
 func (m *Manager) Start(camera *models.Camera) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if e, ok := m.streams[camera.ID]; ok && e.status == "live" {
-		return nil // already streaming
+	existing, ok := m.relays[camera.ID]
+	if ok {
+		if m.sourceURLs[camera.ID] == camera.RTSPURL {
+			return nil // same URL, already running
+		}
+		// URL changed — stop old relay and start fresh.
+		log.Printf("[stream] source URL changed for %s, recycling relay", camera.ID)
+		existing.stop()
+		_ = os.RemoveAll(filepath.Join(hlsBaseDir, camera.ID))
+		delete(m.relays, camera.ID)
+		delete(m.sourceURLs, camera.ID)
 	}
 
 	outDir := filepath.Join(hlsBaseDir, camera.ID)
-	if err := os.MkdirAll(outDir, 0755); err != nil {
-		return fmt.Errorf("create HLS dir: %w", err)
+	r := newRelay(camera.ID, outDir)
+	src := NewSource(camera.RTSPURL)
+
+	if err := r.start(context.Background(), src); err != nil {
+		return err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	entry := &streamEntry{
-		cancel:    cancel,
-		status:    "reconnecting",
-		startedAt: time.Now(),
-	}
-	m.streams[camera.ID] = entry
-
-	go m.runLoop(ctx, camera, entry, outDir)
+	m.relays[camera.ID] = r
+	m.sourceURLs[camera.ID] = camera.RTSPURL
+	log.Printf("[stream] relay started for camera %s (%s)", camera.ID, camera.RTSPURL)
 	return nil
 }
 
-func (m *Manager) runLoop(ctx context.Context, camera *models.Camera, entry *streamEntry, outDir string) {
-	attempts := 0
-	for {
-		select {
-		case <-ctx.Done():
-			m.setStatus(camera.ID, "offline", "")
-			return
-		default:
-		}
-
-		if attempts >= maxReconnects && !camera.AutoReconnect {
-			m.setStatus(camera.ID, "offline", "max reconnects reached")
-			return
-		}
-
-		m.setStatus(camera.ID, "reconnecting", "")
-		playlist := filepath.Join(outDir, "stream.m3u8")
-
-		// pix_fmt yuv420p + profile main = required for browser MSE playback;
-		// many RTSP sources (incl. our webcam test rig) deliver 4:2:2, which
-		// libx264 will happily pass through and which no browser will decode.
-		cmd := exec.CommandContext(ctx, "ffmpeg",
-			"-loglevel", "error",
-			"-fflags", "nobuffer",
-			"-rtsp_transport", "tcp",
-			"-i", camera.RTSPURL,
-			"-map", "0:v:0",
-			"-c:v", "libx264",
-			"-preset", "ultrafast",
-			"-tune", "zerolatency",
-			"-profile:v", "main",
-			"-pix_fmt", "yuv420p",
-			"-g", "30",
-			"-keyint_min", "30",
-			"-sc_threshold", "0",
-			"-an",
-			"-f", "hls",
-			"-hls_time", "2",
-			"-hls_list_size", "5",
-			"-hls_flags", "delete_segments+append_list+independent_segments",
-			"-hls_segment_type", "mpegts",
-			"-hls_segment_filename", filepath.Join(outDir, "seg%05d.ts"),
-			playlist,
-		)
-
-		log.Printf("[stream] starting camera %s (%s)", camera.ID, camera.RTSPURL)
-		m.setStatus(camera.ID, "live", "")
-
-		if err := cmd.Run(); err != nil {
-			if ctx.Err() != nil {
-				m.setStatus(camera.ID, "offline", "")
-				return
-			}
-			log.Printf("[stream] camera %s exited: %v", camera.ID, err)
-			m.setStatus(camera.ID, "reconnecting", err.Error())
-			attempts++
-		} else {
-			attempts = 0
-		}
-
-		select {
-		case <-ctx.Done():
-			m.setStatus(camera.ID, "offline", "")
-			return
-		case <-time.After(reconnectDelay):
-		}
-	}
-}
-
-func (m *Manager) setStatus(id, status, errMsg string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if e, ok := m.streams[id]; ok {
-		e.status = status
-		e.errMsg = errMsg
-	}
-}
-
-// Stop gracefully shuts down a camera stream.
+// Stop shuts down the relay for a camera and removes its HLS directory.
 func (m *Manager) Stop(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if e, ok := m.streams[id]; ok {
-		e.cancel()
-		delete(m.streams, id)
+	if r, ok := m.relays[id]; ok {
+		r.stop()
+		delete(m.relays, id)
+		delete(m.sourceURLs, id)
 	}
-	// Clean up HLS segments
 	_ = os.RemoveAll(filepath.Join(hlsBaseDir, id))
 }
 
 // Status returns the current stream status for a camera.
 func (m *Manager) Status(id string) models.StreamStatus {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	e, ok := m.streams[id]
+	r, ok := m.relays[id]
+	m.mu.RUnlock()
 	if !ok {
 		return models.StreamStatus{CameraID: id, Status: "offline"}
 	}
-
-	hlsURL := ""
-	if e.status == "live" {
-		hlsURL = fmt.Sprintf("/hls/%s/stream.m3u8", id)
-	}
-
-	st := e.startedAt
-	return models.StreamStatus{
-		CameraID:  id,
-		Status:    e.status,
-		HLSURL:    hlsURL,
-		StartedAt: &st,
-		Error:     e.errMsg,
-	}
+	return r.Status()
 }
 
-// StartAll starts streams for all cameras with AutoReconnect enabled.
+// StartAll starts relays for all cameras that have auto_reconnect enabled.
 func (m *Manager) StartAll(cameras []*models.Camera) {
 	for _, c := range cameras {
 		if c.AutoReconnect {
@@ -187,7 +95,29 @@ func (m *Manager) StartAll(cameras []*models.Camera) {
 	}
 }
 
-// HLSDir returns the HLS output directory for a camera.
-func HLSDir() string {
-	return hlsBaseDir
+// Subscribe returns a channel that receives JPEG frames from the camera's relay.
+// Returns nil if no relay is running for that camera.
+// The caller must call Unsubscribe when done to avoid leaking the channel.
+func (m *Manager) Subscribe(id string) chan []byte {
+	m.mu.RLock()
+	r, ok := m.relays[id]
+	m.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	return r.subscribe()
 }
+
+// Unsubscribe removes a channel previously returned by Subscribe.
+func (m *Manager) Unsubscribe(id string, ch chan []byte) {
+	m.mu.RLock()
+	r, ok := m.relays[id]
+	m.mu.RUnlock()
+	if !ok {
+		return
+	}
+	r.unsubscribe(ch)
+}
+
+// HLSDir returns the root directory where HLS segments are stored.
+func HLSDir() string { return hlsBaseDir }

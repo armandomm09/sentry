@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useRef } from 'react'
 import type { CameraWithStream } from '../../types/camera'
 import { api } from '../../api/client'
 import { Button } from '../ui/Button'
@@ -31,6 +32,9 @@ function KVRow({ label, value, mono }: KVRowProps) {
 export function CameraView({ camera, onBack }: Props) {
   const qc = useQueryClient()
   const status = camera.stream.status
+  // Shared ref: HLSPlayer writes a getter for its current playback wall-clock
+  // time; DetectionOverlay reads it to sync bbox display with video position.
+  const playbackTimeRef = useRef<(() => number | null) | null>(null)
   const isLive = status === 'live' || status === 'recording'
 
   const startStream = useMutation({
@@ -105,10 +109,11 @@ export function CameraView({ camera, onBack }: Props) {
           >
             {isLive && camera.stream.hls_url ? (
               <>
-                <HLSPlayer src={camera.stream.hls_url} />
+                <HLSPlayer src={camera.stream.hls_url} playbackTimeRef={playbackTimeRef} />
                 <DetectionOverlay
                   cameraId={camera.id}
                   enabled={camera.face_recognition_enabled}
+                  playbackTimeRef={playbackTimeRef}
                 />
               </>
             ) : (

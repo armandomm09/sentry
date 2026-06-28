@@ -199,10 +199,9 @@ async def cameras_enable(request: web.Request) -> web.Response:
     if isinstance(body, web.Response):
         return body
     camera_id = (body.get("camera_id") or "").strip()
-    rtsp_url = (body.get("rtsp_url") or "").strip()
-    if not camera_id or not rtsp_url:
-        return _err("camera_id and rtsp_url are required")
-    sup.start_camera(camera_id, rtsp_url)
+    if not camera_id:
+        return _err("camera_id is required")
+    sup.start_camera(camera_id)
     return _json({"camera_id": camera_id, "running": sup.is_running(camera_id)})
 
 

@@ -48,10 +48,10 @@ func (c *Client) Health(ctx context.Context) error {
 }
 
 // EnableCamera starts (or recycles) the face-rec worker for a camera.
-func (c *Client) EnableCamera(ctx context.Context, cameraID, rtspURL string) error {
+// The worker connects to the Go relay via WebSocket; no source URL is needed here.
+func (c *Client) EnableCamera(ctx context.Context, cameraID string) error {
 	body, _ := json.Marshal(map[string]string{
 		"camera_id": cameraID,
-		"rtsp_url":  rtspURL,
 	})
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
 		c.baseURL+"/cameras", bytes.NewReader(body))

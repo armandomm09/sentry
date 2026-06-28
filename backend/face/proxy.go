@@ -60,7 +60,7 @@ func SyncFromStore(ctx context.Context, client *Client, cameras []*models.Camera
 		if !cam.FaceRecognitionEnabled {
 			continue
 		}
-		if err := client.EnableCamera(ctx, cam.ID, cam.RTSPURL); err != nil {
+		if err := client.EnableCamera(ctx, cam.ID); err != nil {
 			log.Printf("[face-proxy] sync enable %s: %v", cam.ID, err)
 		}
 	}

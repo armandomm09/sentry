@@ -6,6 +6,13 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 FACE_PID=""
 FACE_VENV="$ROOT/face-service/.venv"
 
+# Kill any previously running sentry processes before starting fresh.
+echo "Stopping existing sentry processes…"
+pkill -f "go run \." 2>/dev/null || true
+pkill -f "face_service" 2>/dev/null || true
+pkill -f "vite" 2>/dev/null || true
+sleep 1
+
 echo "Starting Sentry backend on :8080…"
 cd "$ROOT/backend"
 go run . &

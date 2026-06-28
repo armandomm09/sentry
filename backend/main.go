@@ -80,6 +80,8 @@ func main() {
 			cameras.POST("/:id/stream/start", h.StreamStart)
 			cameras.POST("/:id/stream/stop", h.StreamStop)
 			cameras.GET("/:id/stream/status", h.StreamStatus)
+			// WebSocket endpoint: streams JPEG frames to subscribers (e.g. face-service).
+			cameras.GET("/:id/frames", h.FramesWS)
 		}
 
 		api.GET("/streams", h.AllStreamStatuses)

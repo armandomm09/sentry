@@ -38,7 +38,8 @@ class Config:
     match_threshold: float    # cosine similarity threshold for a match
     idle_fps: float           # fps when no viewer is attached
     active_fps: float         # fps when a viewer is watching
-    frame_width: int          # ffmpeg downscale width (height auto)
+    frame_width: int          # target decode width for face inference (frames are JPEG-decoded)
+    relay_url: str            # base ws:// URL of the Go relay (e.g. ws://127.0.0.1:8080)
     providers: tuple[str, ...]
 
     @staticmethod
@@ -72,5 +73,6 @@ class Config:
             idle_fps=_env_float("FACE_SERVICE_IDLE_FPS", 2.0),
             active_fps=_env_float("FACE_SERVICE_ACTIVE_FPS", 8.0),
             frame_width=_env_int("FACE_SERVICE_FRAME_WIDTH", 640),
+            relay_url=_env("FACE_SERVICE_RELAY_URL", "ws://127.0.0.1:8080"),
             providers=providers,
         )

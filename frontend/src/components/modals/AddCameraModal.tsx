@@ -67,8 +67,9 @@ export function AddCameraModal({ open, onClose }: Props) {
 
   const validate = () => {
     const e: Record<string, string> = {}
-    if (!rtspUrl.trim()) e.rtspUrl = 'RTSP URL is required'
-    else if (!rtspUrl.startsWith('rtsp://')) e.rtspUrl = 'Must start with rtsp://'
+    if (!rtspUrl.trim()) e.rtspUrl = 'Stream URL is required'
+    else if (!rtspUrl.startsWith('rtsp://') && !rtspUrl.startsWith('ws://') && !rtspUrl.startsWith('wss://'))
+      e.rtspUrl = 'Must start with rtsp://, ws://, or wss://'
     if (!name.trim()) e.name = 'Name is required'
     setErrors(e)
     return Object.keys(e).length === 0
@@ -104,7 +105,7 @@ export function AddCameraModal({ open, onClose }: Props) {
               Add camera
             </h2>
             <p className="font-sans text-[12px] text-fg-3 mt-1 leading-relaxed">
-              Connect an IP camera by its RTSP url. Sentry begins monitoring once the stream is verified.
+              Connect a camera via RTSP or a WebSocket source. Sentry begins monitoring once the stream is active.
             </p>
           </div>
           <button
@@ -119,12 +120,12 @@ export function AddCameraModal({ open, onClose }: Props) {
         {/* Body */}
         <div className="px-5 py-5 flex flex-col gap-3.5">
           <Field
-            label="RTSP URL"
+            label="Stream URL"
             placeholder="rtsp://admin@192.168.1.42/live"
             value={rtspUrl}
             onChange={setRtspUrl}
             mono
-            hint="Sentry connects in the background and reconnects automatically on failure."
+            hint="Accepts rtsp:// for IP cameras or ws:// for WebSocket sources (e.g. webcam test server)."
             error={errors.rtspUrl}
           />
 

@@ -30,7 +30,6 @@ QUEUE_CAPACITY = 256
 @dataclass
 class WorkerHandle:
     camera_id: str
-    rtsp_url: str
     process: mp.Process
     fps_value: "mp.sharedctypes.Synchronized"
     index_version: "mp.sharedctypes.Synchronized"
@@ -88,7 +87,6 @@ class Supervisor:
             return [
                 {
                     "camera_id": h.camera_id,
-                    "rtsp_url": h.rtsp_url,
                     "alive": h.alive,
                     "fps": float(h.fps_value.value),
                     "subscribers": h.subscriber_count,
@@ -102,18 +100,14 @@ class Supervisor:
             h = self._workers.get(camera_id)
             return bool(h and h.alive)
 
-    def start_camera(self, camera_id: str, rtsp_url: str) -> None:
-        """Start a worker for this camera. If one is already running with the same
-        URL we no-op; if the URL changed we recycle the worker.
+    def start_camera(self, camera_id: str) -> None:
+        """Start a worker for this camera. No-op if already running.
+        The worker connects to the Go relay WebSocket — no source URL needed here.
         """
         with self._workers_lock:
             existing = self._workers.get(camera_id)
             if existing and existing.alive:
-                if existing.rtsp_url == rtsp_url:
-                    return
-                log.info("camera %s RTSP changed, recycling worker", camera_id)
-                self._terminate(existing)
-                self._workers.pop(camera_id, None)
+                return  # already running
 
             fps = self._mp_ctx.Value("d", self._config.idle_fps)
             version = self._mp_ctx.Value("i", self._index_version_global)
@@ -122,16 +116,12 @@ class Supervisor:
             proc = self._mp_ctx.Process(
                 target=run_worker,
                 name=f"face-worker-{camera_id[:8]}",
-                args=(
-                    camera_id, rtsp_url, self._config,
-                    fps, version, shutdown, self._out_queue,
-                ),
+                args=(camera_id, self._config, fps, version, shutdown, self._out_queue),
                 daemon=True,
             )
             proc.start()
             handle = WorkerHandle(
                 camera_id=camera_id,
-                rtsp_url=rtsp_url,
                 process=proc,
                 fps_value=fps,
                 index_version=version,

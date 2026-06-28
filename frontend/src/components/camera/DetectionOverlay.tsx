@@ -14,6 +14,16 @@
 
 import { useEffect, useRef, useState } from 'react'
 
+// Face-service detection events carry a `ts` (Unix seconds at inference time).
+// The HLS player is 8-15+ seconds behind the live RTSP feed, so events must be
+// held in a queue and released only when the HLS playback position reaches the
+// corresponding timestamp. This prevents the bbox from appearing long before (or
+// after) the face is visible in the video.
+//
+// The queue is drained on each animation frame. Events older than MAX_QUEUE_AGE_S
+// are discarded to avoid bboxes popping up for ancient frames (e.g. after a seek).
+const MAX_QUEUE_AGE_S = 60
+
 interface Detection {
   bbox: [number, number, number, number] // x1, y1, x2, y2 normalized
   score: number
@@ -36,16 +46,22 @@ interface Props {
   cameraId: string
   /** When false the overlay renders nothing and does not open a WebSocket. */
   enabled: boolean
+  /** Ref populated by HLSPlayer with a getter for the current playback wall-clock
+   *  time (Unix seconds). When available, events are held until the video reaches
+   *  their timestamp. Falls back to immediate display when null (no PDT yet). */
+  playbackTimeRef?: React.MutableRefObject<(() => number | null) | null>
 }
 
 // Drop detections older than this so the boxes don't linger when face-rec stalls.
 const STALE_MS = 2500
 
-export function DetectionOverlay({ cameraId, enabled }: Props) {
+export function DetectionOverlay({ cameraId, enabled, playbackTimeRef }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [bounds, setBounds] = useState({ w: 0, h: 0 })
   const [event, setEvent] = useState<DetectionEvent | null>(null)
   const [status, setStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('closed')
+  // Pending events waiting for the HLS player to reach their timestamp.
+  const pendingRef = useRef<DetectionEvent[]>([])
 
   // -- size tracking (own element) --
   useEffect(() => {
@@ -77,7 +93,13 @@ export function DetectionOverlay({ cameraId, enabled }: Props) {
         try {
           const data = JSON.parse(msg.data) as DetectionEvent
           if (data.type === 'detections') {
-            setEvent(data)
+            // Push into the pending queue; the rAF drain loop will release it
+            // when the HLS player reaches the event's wall-clock timestamp.
+            pendingRef.current.push(data)
+            // Cap memory: keep at most 500 pending events (~1 min at 8 fps)
+            if (pendingRef.current.length > 500) {
+              pendingRef.current = pendingRef.current.slice(-250)
+            }
           } else if (data.type === 'error') {
             setStatus('error')
           }
@@ -98,6 +120,7 @@ export function DetectionOverlay({ cameraId, enabled }: Props) {
     connect()
     return () => {
       stopped = true
+      pendingRef.current = []
       if (retryTimer) window.clearTimeout(retryTimer)
       if (ws) {
         ws.onclose = null
@@ -105,6 +128,61 @@ export function DetectionOverlay({ cameraId, enabled }: Props) {
       }
     }
   }, [cameraId, enabled])
+
+  // -- event drain: release queued detections when the HLS player catches up --
+  useEffect(() => {
+    if (!enabled) return
+    let rafId: number
+
+    const tick = () => {
+      if (pendingRef.current.length > 0) {
+        const getTime = playbackTimeRef?.current
+        const playTime = getTime?.() ?? null
+
+        if (playTime == null) {
+          // No PDT info yet — surface the most recent event immediately so the
+          // overlay isn't stuck blank during the first few seconds of stream load.
+          const latest = pendingRef.current[pendingRef.current.length - 1]
+          pendingRef.current = []
+          setEvent(latest)
+        } else {
+          // Drop events that are too old (video seeked forward, long pause, etc.)
+          const cutoff = playTime - MAX_QUEUE_AGE_S
+          const firstValid = pendingRef.current.findIndex(e => (e.ts ?? 0) >= cutoff)
+          if (firstValid < 0) {
+            pendingRef.current = []
+          } else if (firstValid > 0) {
+            pendingRef.current = pendingRef.current.slice(firstValid)
+          }
+
+          // Find the most recent event the video has already reached.
+          // Events are in chronological order (WebSocket delivers them in order).
+          // We add a small tolerance for the gap between frame capture and
+          // inference completion (detection ts is slightly after capture time).
+          let bestIdx = -1
+          for (let i = 0; i < pendingRef.current.length; i++) {
+            if ((pendingRef.current[i].ts ?? 0) <= playTime + 0.3) {
+              bestIdx = i
+            } else {
+              break
+            }
+          }
+
+          if (bestIdx >= 0) {
+            const toShow = pendingRef.current[bestIdx]
+            // Discard events up to and including bestIdx; keep future events.
+            pendingRef.current = pendingRef.current.slice(bestIdx + 1)
+            setEvent(toShow)
+          }
+        }
+      }
+
+      rafId = requestAnimationFrame(tick)
+    }
+
+    rafId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId)
+  }, [enabled, playbackTimeRef])
 
   // -- stale eviction --
   useEffect(() => {

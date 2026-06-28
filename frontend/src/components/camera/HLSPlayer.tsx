@@ -5,9 +5,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 interface Props {
   src: string
   className?: string
+  /** Populated with a getter for the HLS wall-clock time (Unix seconds) of the
+   *  frame currently on screen. Requires EXT-X-PROGRAM-DATE-TIME in the manifest
+   *  (added by the `program_date_time` HLS flag in the Go backend). Returns null
+   *  until the first segment with PDT is loaded. */
+  playbackTimeRef?: React.MutableRefObject<(() => number | null) | null>
 }
 
-export function HLSPlayer({ src, className = '' }: Props) {
+export function HLSPlayer({ src, className = '', playbackTimeRef }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -52,9 +57,35 @@ export function HLSPlayer({ src, className = '' }: Props) {
           setErrorMsg(data.details || 'fatal stream error')
         }
       })
+      // Track the live edge so we can estimate the video's wall-clock time.
+      // Updated every time hls.js re-fetches the manifest (~every 2s for live).
+      // Formula: content at stream-pos V was live at wallTime + (V - streamPos).
+      // This works without EXT-X-PROGRAM-DATE-TIME as a reliable fallback.
+      let liveEdge = { streamPos: 0, wallTime: 0 }
+      hls.on(Hls.Events.LEVEL_DETAILS_LOADED, (_e, data) => {
+        if (data.details.live) {
+          liveEdge = { streamPos: data.details.edge, wallTime: Date.now() / 1000 }
+        }
+      })
+
+      if (playbackTimeRef) {
+        playbackTimeRef.current = () => {
+          const v = videoRef.current
+          if (!v) return null
+          // Primary: PDT from the manifest (EXT-X-PROGRAM-DATE-TIME), most accurate.
+          const d = hls.playingDate
+          if (d) return d.getTime() / 1000
+          // Fallback: derive from the live-edge position we recorded above.
+          if (liveEdge.wallTime > 0) {
+            return liveEdge.wallTime + (v.currentTime - liveEdge.streamPos)
+          }
+          return null
+        }
+      }
       return () => {
         hls.destroy()
         hlsRef.current = null
+        if (playbackTimeRef) playbackTimeRef.current = null
       }
     }
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
