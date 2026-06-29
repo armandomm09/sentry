@@ -13,6 +13,7 @@ import (
 	"github.com/dim/sentry/backend/stream"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	_ "golang.org/x/crypto/bcrypt"
 )
 
 func main() {
