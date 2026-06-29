@@ -64,7 +64,7 @@ export default function CameraDetailScreen({ route, navigation }: Props): React.
 
   const ListEmpty = (
     <View style={styles.emptyState}>
-      <Text style={styles.emptyText}>No detections yet</Text>
+      <Text style={styles.emptyText}>No detection yet</Text>
     </View>
   )
 

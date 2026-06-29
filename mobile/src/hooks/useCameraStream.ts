@@ -32,7 +32,7 @@ export function useCameraStream(cameraId: string | null): {
   const connect = useCallback(() => {
     if (!baseUrl || !token || !currentCameraIdRef.current) return
 
-    const url = toWsUrl(baseUrl, `/api/cameras/${currentCameraIdRef.current}/ws`)
+    const url = toWsUrl(baseUrl, `/api/cameras/${currentCameraIdRef.current}/frames`)
 
     // React Native WebSocket supports a 3rd options argument for custom headers
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

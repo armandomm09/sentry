@@ -11,7 +11,10 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.sentry.home"
@@ -29,11 +32,15 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-secure-store", "expo-notifications"],
+    "plugins": [
+      "expo-secure-store",
+      "expo-notifications"
+    ],
     "extra": {
       "eas": {
-        "projectId": "your-eas-project-id"
+        "projectId": "e4af1b58-e28e-4a5a-98c9-039ddc48bb9f"
       }
-    }
+    },
+    "owner": "armando_mm09"
   }
 }

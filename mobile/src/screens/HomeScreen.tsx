@@ -116,7 +116,7 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
   const ListHeader = (
     <View>
       <Text style={styles.title}>Sentry</Text>
-      <Text style={styles.subtitle}>{cameras.length} cameras</Text>
+      <Text style={styles.subtitle}>{cameras.length} camera</Text>
     </View>
   )
 
@@ -197,6 +197,7 @@ const styles = StyleSheet.create({
     color: tokens.colors.textMuted,
     paddingHorizontal: 16,
     marginTop: -8,
+    marginBottom: 5
   },
   listContent: {
     paddingHorizontal: 16,
