@@ -3,6 +3,7 @@ import { Check, Pencil, Trash2, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { api } from '../../api/client'
 import type { Person, PhotoUploadError } from '../../types/person'
+import { AuthImage } from '../ui/AuthImage'
 import { UploadDropzone } from './UploadDropzone'
 
 interface Props {
@@ -154,7 +155,8 @@ export function PersonCard({ person }: Props) {
             {photos.map(p => (
               <PhotoThumb
                 key={p.id}
-                src={api.persons.photoUrl(person.id, p.id)}
+                pid={person.id}
+                photoId={p.id}
                 alt={`${person.name} photo`}
                 onDelete={() => deletePhoto.mutate(p.id)}
                 pending={deletePhoto.isPending && deletePhoto.variables === p.id}
@@ -192,8 +194,9 @@ export function PersonCard({ person }: Props) {
 function Avatar({ person, firstPhotoId }: { person: Person; firstPhotoId?: string }) {
   if (firstPhotoId) {
     return (
-      <img
-        src={api.persons.photoUrl(person.id, firstPhotoId)}
+      <AuthImage
+        pid={person.id}
+        photoId={firstPhotoId}
         alt={person.name}
         className="w-10 h-10 rounded-full object-cover bg-ink-dark border border-ink-border flex-shrink-0"
       />
@@ -208,11 +211,11 @@ function Avatar({ person, firstPhotoId }: { person: Person; firstPhotoId?: strin
 }
 
 function PhotoThumb({
-  src, alt, onDelete, pending,
-}: { src: string; alt: string; onDelete: () => void; pending: boolean }) {
+  pid, photoId, alt, onDelete, pending,
+}: { pid: string; photoId: string; alt: string; onDelete: () => void; pending: boolean }) {
   return (
     <div className="relative w-16 h-16 rounded-r2 overflow-hidden flex-shrink-0 group bg-ink-dark border border-ink-border">
-      <img src={src} alt={alt} className="w-full h-full object-cover" />
+      <AuthImage pid={pid} photoId={photoId} alt={alt} className="w-full h-full object-cover" />
       <button
         onClick={onDelete}
         disabled={pending}

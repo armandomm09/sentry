@@ -85,6 +85,14 @@ export const api = {
     },
     deletePhoto: (pid: string, photoId: string) =>
       request<void>(`/persons/${pid}/photos/${photoId}`, { method: 'DELETE' }),
-    photoUrl: (pid: string, photoId: string) => `${BASE}/persons/${pid}/photos/${photoId}/raw`,
+    fetchPhoto: async (pid: string, photoId: string): Promise<string> => {
+      const token = getToken()
+      const res = await fetch(`${BASE}/persons/${pid}/photos/${photoId}/raw`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (res.status === 401) { handleUnauthorized(); throw new Error('Unauthorized') }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return URL.createObjectURL(await res.blob())
+    },
   },
 }
