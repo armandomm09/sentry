@@ -219,6 +219,10 @@ async def _process_frames(
                 match_result = index.match(track.current_embedding)
                 track.push_vote(match_result)
 
+            # Only emit detection for tracks visible in this frame (not lost)
+            if track.lost_count > 0:
+                continue
+
             voted = track.voted_identity()
             x1, y1, x2, y2 = track.bbox
             detections.append({

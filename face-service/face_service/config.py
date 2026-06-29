@@ -76,7 +76,7 @@ class Config:
             match_threshold=_env_float("FACE_SERVICE_MATCH_THRESHOLD", 0.42),
             idle_fps=_env_float("FACE_SERVICE_IDLE_FPS", 2.0),
             active_fps=_env_float("FACE_SERVICE_ACTIVE_FPS", 8.0),
-            frame_width=_env_int("FACE_SERVICE_FRAME_WIDTH", 640),
+            frame_width=_env_int("FACE_SERVICE_FRAME_WIDTH", 1024),
             relay_url=_env("FACE_SERVICE_RELAY_URL", "ws://127.0.0.1:8080"),
             providers=providers,
             track_min_iou=_env_float("FACE_SERVICE_TRACK_MIN_IOU", 0.3),
