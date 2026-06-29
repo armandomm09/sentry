@@ -2,41 +2,16 @@ import { StyleSheet } from 'react-native'
 
 const tokens = {
   colors: {
-    // Backgrounds
-    bgPrimary: '#0d0d0d',
-    bgSecondary: '#1a1a1a',
-    bgCard: '#242424',
-    bgOverlay: 'rgba(0,0,0,0.6)',
-
-    // Brand / accent
-    accent: '#00c2ff',
-    accentDim: '#0099cc',
-
-    // Status
-    live: '#22c55e',
-    reconnecting: '#f59e0b',
-    error: '#ef4444',
-    warning: '#f59e0b',
-    success: '#22c55e',
-
-    // Text
-    textPrimary: '#f5f5f5',
-    textSecondary: '#a3a3a3',
-    textDisabled: '#525252',
-    textInverse: '#0d0d0d',
-
-    // Borders / dividers
-    border: '#2e2e2e',
-    borderFocus: '#00c2ff',
-
-    // Interactive
-    buttonPrimary: '#00c2ff',
-    buttonPrimaryText: '#0d0d0d',
-    buttonDestructive: '#ef4444',
-    buttonDestructiveText: '#f5f5f5',
-
-    // Transparent
-    transparent: 'transparent',
+    primary:   '#e83a29',
+    bg:        '#0f0f0f',
+    surface1:  '#1c1c1e',
+    surface2:  '#2c2c2e',
+    text:      '#ffffff',
+    textMuted: '#8e8e93',
+    online:    '#30d158',
+    warning:   '#ff9f0a',
+    danger:    '#e83a29',
+    border:    '#3a3a3c',
   },
 
   radii: {
