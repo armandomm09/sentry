@@ -4,17 +4,18 @@
 
 ## Problem
 
-The mobile app's `CameraDetailScreen` shows a live MJPEG stream and a scrollable list of detection events (cards), but bounding boxes never appear on the video because:
+The mobile app's `CameraDetailScreen` shows a live MJPEG stream but **neither bounding boxes nor detection event cards appear**. Both fail for the same root cause:
 
-1. `useDetections` connects to `/api/face/cameras/:id/ws` — a route that does not exist on the Go backend (only `/persons/*` is proxied to the face-service).
-2. `LiveStreamView` renders only the raw `<Image>` with no overlay layer.
+1. `useDetections` connects to `/api/face/cameras/:id/ws` — a route that does not exist on the Go backend (only `/persons/*` is proxied to the face-service). The WebSocket connection is rejected, so no detection events reach the app at all.
+2. Because no events arrive, the card log is empty and no live bboxes are available.
+3. `LiveStreamView` also has no overlay layer, so even if events did arrive they could not be displayed on the video.
 
 ## Goals
 
 - Show real-time bounding boxes + name labels directly on the live video.
-- Fix the broken detection WebSocket route.
+- Fix the broken detection WebSocket route (unblocks both the card log and bboxes).
 - No new npm dependencies.
-- Keep the existing detection card log working as-is.
+- Restore the detection card log (currently showing nothing) and add live bbox overlay.
 
 ## Architecture
 
