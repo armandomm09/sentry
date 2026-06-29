@@ -16,11 +16,13 @@ export type Detection = {
   ts: string
 }
 
-// Shape of a single detection object sent by the face-service over WS
-type RawDetection = {
+// Shape of a single detection object sent by the face-service over WS.
+// Exported so overlay components can type-check against it.
+export type RawDetection = {
   person_id: string | null
   name?: string | null
   score: number
+  similarity?: number | null
   bbox: [number, number, number, number]
 }
 
@@ -48,10 +50,13 @@ export function useDetections(
 ): {
   detections: Detection[]
   clearDetections: () => void
+  liveBboxes: RawDetection[]
 } {
   const { baseUrl, token } = useAuth()
 
   const [detections, setDetections] = useState<Detection[]>([])
+  const [liveBboxes, setLiveBboxes] = useState<RawDetection[]>([])
+  const staleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Map from cameraId → WebSocket
   const socketsRef = useRef<Map<string, WebSocket>>(new Map())
@@ -93,6 +98,16 @@ export function useDetections(
           payload = JSON.parse(event.data as string) as WsEvent
         } catch {
           return
+        }
+
+        // Update live bbox state (clears after 2500 ms with no new detections)
+        if (Array.isArray(payload.detections) && payload.detections.length > 0) {
+          setLiveBboxes(payload.detections)
+          if (staleTimerRef.current) clearTimeout(staleTimerRef.current)
+          staleTimerRef.current = setTimeout(() => {
+            setLiveBboxes([])
+            staleTimerRef.current = null
+          }, 2500)
         }
 
         if (!Array.isArray(payload.detections) || payload.detections.length === 0) return
@@ -139,6 +154,12 @@ export function useDetections(
     timersRef.current.forEach((timer) => clearTimeout(timer))
     timersRef.current.clear()
 
+    if (staleTimerRef.current) {
+      clearTimeout(staleTimerRef.current)
+      staleTimerRef.current = null
+    }
+    setLiveBboxes([])
+
     socketsRef.current.forEach((ws) => {
       ws.onclose = null
       ws.onerror = null
@@ -171,5 +192,5 @@ export function useDetections(
     teardownAll,
   ])
 
-  return { detections, clearDetections }
+  return { detections, clearDetections, liveBboxes }
 }
