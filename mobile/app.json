@@ -29,6 +29,11 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-secure-store", "expo-notifications"]
+    "plugins": ["expo-secure-store", "expo-notifications"],
+    "extra": {
+      "eas": {
+        "projectId": "your-eas-project-id"
+      }
+    }
   }
 }

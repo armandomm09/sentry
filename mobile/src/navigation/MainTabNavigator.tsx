@@ -8,7 +8,7 @@ import tokens from '../theme/tokens'
 
 import HomeScreen from '../screens/HomeScreen'
 import CameraDetailScreen from '../screens/CameraDetailScreen'
-import AlertsScreen from '../screens/AlertsScreen'
+import AlertsScreen, { alertsUnreadCountRef } from '../screens/AlertsScreen'
 import PersonsScreen from '../screens/PersonsScreen'
 import SettingsScreen from '../screens/SettingsScreen'
 
@@ -42,6 +42,15 @@ function HomeStackNavigator(): React.JSX.Element {
 const Tab = createBottomTabNavigator<MainTabParamList>()
 
 export default function MainTabNavigator(): React.JSX.Element {
+  const [alertsUnread, setAlertsUnread] = React.useState(0)
+
+  React.useEffect(() => {
+    alertsUnreadCountRef.onChange = setAlertsUnread
+    return () => {
+      alertsUnreadCountRef.onChange = null
+    }
+  }, [])
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -74,6 +83,8 @@ export default function MainTabNavigator(): React.JSX.Element {
         options={{
           title: 'Alerts',
           tabBarAccessibilityLabel: 'Alerts',
+          tabBarBadge: alertsUnread > 0 ? alertsUnread : undefined,
+          tabBarBadgeStyle: { backgroundColor: tokens.colors.primary, fontSize: 10 },
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="notifications" size={size ?? 24} color={color} />
           ),
