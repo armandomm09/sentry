@@ -31,6 +31,7 @@ import numpy as np
 from .config import Config
 from .db import Database
 from .recognizer import MatchIndex, Recognizer
+from .tracker import FaceTracker
 
 
 log = logging.getLogger(__name__)
@@ -85,6 +86,12 @@ async def _run_async(
         det_size=config.det_size,
         providers=config.providers,
     )
+    tracker = FaceTracker(
+        min_iou=config.track_min_iou,
+        min_hits=config.track_min_hits,
+        max_lost=config.track_max_lost,
+        vote_window=config.track_vote_window,
+    )
     index_ref = [_load_index(str(config.db_path), config.match_threshold)]
     local_version = int(index_version.value)
     log.info("index loaded: %d prototypes (version=%d)", index_ref[0].size, local_version)
@@ -104,6 +111,7 @@ async def _run_async(
                         camera_id=camera_id,
                         config=config,
                         rec=rec,
+                        tracker=tracker,
                         index_ref=index_ref,
                         local_version=local_version,
                         fps_value=fps_value,
@@ -132,6 +140,7 @@ async def _process_frames(
     camera_id: str,
     config: Config,
     rec: Recognizer,
+    tracker: FaceTracker,
     index_ref: list[MatchIndex],
     local_version: int,
     fps_value,
@@ -201,22 +210,29 @@ async def _process_frames(
             log.warning("detect failed: %s", exc)
             continue
 
+        tracker.update(faces)
+
         detections = []
         index = index_ref[0]
-        for f in faces:
-            match = index.match(f.embedding) if f.embedding is not None else None
-            x1, y1, x2, y2 = f.bbox
+        for track in tracker.confirmed_tracks():
+            if track.current_embedding is not None:
+                match_result = index.match(track.current_embedding)
+                track.push_vote(match_result)
+
+            voted = track.voted_identity()
+            x1, y1, x2, y2 = track.bbox
             detections.append({
+                "track_id": track.id,
                 "bbox": [
                     max(0.0, x1 / frame_w),
                     max(0.0, y1 / frame_h),
                     min(1.0, x2 / frame_w),
                     min(1.0, y2 / frame_h),
                 ],
-                "score": round(f.score, 3),
-                "person_id": match.person_id if match else None,
-                "name": match.name if match else None,
-                "similarity": round(match.similarity, 3) if match else None,
+                "score": round(track.det_score, 3),
+                "person_id": voted.person_id if voted else None,
+                "name": voted.name if voted else None,
+                "similarity": round(voted.similarity, 3) if voted else None,
             })
 
         # Throttle empty-frame events so we don't spam the WS at idle FPS.

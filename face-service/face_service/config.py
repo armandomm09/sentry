@@ -41,6 +41,10 @@ class Config:
     frame_width: int          # target decode width for face inference (frames are JPEG-decoded)
     relay_url: str            # base ws:// URL of the Go relay (e.g. ws://127.0.0.1:8080)
     providers: tuple[str, ...]
+    track_min_iou: float
+    track_min_hits: int
+    track_max_lost: int
+    track_vote_window: int
 
     @staticmethod
     def from_env() -> "Config":
@@ -75,4 +79,8 @@ class Config:
             frame_width=_env_int("FACE_SERVICE_FRAME_WIDTH", 640),
             relay_url=_env("FACE_SERVICE_RELAY_URL", "ws://127.0.0.1:8080"),
             providers=providers,
+            track_min_iou=_env_float("FACE_SERVICE_TRACK_MIN_IOU", 0.3),
+            track_min_hits=_env_int("FACE_SERVICE_TRACK_MIN_HITS", 3),
+            track_max_lost=_env_int("FACE_SERVICE_TRACK_MAX_LOST", 5),
+            track_vote_window=_env_int("FACE_SERVICE_TRACK_VOTE_WINDOW", 10),
         )
