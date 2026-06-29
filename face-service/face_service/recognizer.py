@@ -143,60 +143,67 @@ class Recognizer:
 
 
 class MatchIndex:
-    """In-memory cosine matcher built from a list of per-person embeddings.
+    """In-memory cosine gallery matcher.
 
-    We average the embeddings of each person's enrolled photos into a single
-    L2-normalized prototype, then match by argmax dot product. This is plenty
-    fast for hundreds of people and avoids depending on FAISS.
+    Stores every individual embedding as a row (rather than a mean prototype),
+    groups rows by person_id at match time, and returns the person whose best
+    individual embedding is closest to the query. This means any one good photo
+    out of many augmented variants is sufficient for a match.
     """
 
     def __init__(self, threshold: float):
         self._threshold = threshold
-        self._person_ids: list[str] = []
-        self._names: list[str] = []
-        self._matrix: np.ndarray | None = None  # shape (N, 512), L2-normalized
+        self._row_pids: list[str] = []          # person_id per matrix row
+        self._pid_names: dict[str, str] = {}     # person_id -> display name
+        self._matrix: np.ndarray | None = None   # shape (N_rows, 512), L2-norm
 
     def rebuild(self, embeddings: list[tuple[str, str, np.ndarray]]) -> None:
         """embeddings: iterable of (person_id, name, embedding)."""
-        # group by person_id
-        by_person: dict[str, list[np.ndarray]] = {}
-        names: dict[str, str] = {}
-        for pid, name, emb in embeddings:
-            by_person.setdefault(pid, []).append(emb)
-            names[pid] = name
+        rows: list[np.ndarray] = []
+        row_pids: list[str] = []
+        pid_names: dict[str, str] = {}
 
-        if not by_person:
-            self._person_ids = []
-            self._names = []
+        for pid, name, emb in embeddings:
+            pid_names[pid] = name
+            n = np.linalg.norm(emb)
+            if n == 0:
+                continue
+            rows.append((emb / n).astype(np.float32))
+            row_pids.append(pid)
+
+        if not rows:
+            self._row_pids = []
+            self._pid_names = {}
             self._matrix = None
             return
 
-        prototypes = []
-        ids = []
-        labels = []
-        for pid, embs in by_person.items():
-            mean = np.mean(np.stack(embs, axis=0), axis=0)
-            n = np.linalg.norm(mean)
-            if n == 0:
-                continue
-            prototypes.append((mean / n).astype(np.float32))
-            ids.append(pid)
-            labels.append(names[pid])
-
-        self._person_ids = ids
-        self._names = labels
-        self._matrix = np.stack(prototypes, axis=0) if prototypes else None
+        self._row_pids = row_pids
+        self._pid_names = pid_names
+        self._matrix = np.stack(rows, axis=0)
 
     def match(self, embedding: np.ndarray) -> Match | None:
         if self._matrix is None or embedding is None:
             return None
         sims = self._matrix @ embedding.astype(np.float32)
-        idx = int(np.argmax(sims))
-        sim = float(sims[idx])
-        if sim < self._threshold:
+
+        # Take max similarity per person across all their enrolled embeddings.
+        best_sim_by_pid: dict[str, float] = {}
+        for i, pid in enumerate(self._row_pids):
+            s = float(sims[i])
+            if s > best_sim_by_pid.get(pid, -1.0):
+                best_sim_by_pid[pid] = s
+
+        best_pid = max(best_sim_by_pid, key=best_sim_by_pid.__getitem__)
+        best_sim = best_sim_by_pid[best_pid]
+
+        if best_sim < self._threshold:
             return None
-        return Match(person_id=self._person_ids[idx], name=self._names[idx], similarity=sim)
+        return Match(
+            person_id=best_pid,
+            name=self._pid_names[best_pid],
+            similarity=best_sim,
+        )
 
     @property
     def size(self) -> int:
-        return 0 if self._matrix is None else self._matrix.shape[0]
+        return len(self._pid_names)  # unique persons enrolled

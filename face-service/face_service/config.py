@@ -68,7 +68,7 @@ class Config:
             db_path=data_dir / "face.db",
             photos_dir=data_dir / "photos",
             model_pack=_env("FACE_SERVICE_MODEL", "buffalo_l"),
-            det_size=_env_int("FACE_SERVICE_DET_SIZE", 640),
+            det_size=_env_int("FACE_SERVICE_DET_SIZE", 1024),
             match_threshold=_env_float("FACE_SERVICE_MATCH_THRESHOLD", 0.42),
             idle_fps=_env_float("FACE_SERVICE_IDLE_FPS", 2.0),
             active_fps=_env_float("FACE_SERVICE_ACTIVE_FPS", 8.0),
