@@ -31,12 +31,10 @@ export default function CameraDetailScreen({ route, navigation }: Props): React.
 
   const [cameras, setCameras] = useState<Camera[]>([])
 
-  // Set navigation header title
   useEffect(() => {
     navigation.setOptions({ title: cameraName })
   }, [navigation, cameraName])
 
-  // Fetch cameras list on mount for detection camera name resolution
   useEffect(() => {
     if (!baseUrl || !token) return
     void getCameras(baseUrl, token)
@@ -46,7 +44,9 @@ export default function CameraDetailScreen({ route, navigation }: Props): React.
       })
   }, [baseUrl, token])
 
-  const { detections } = useDetections([cameraId], cameras)
+  const { detections, liveBboxes } = useDetections([cameraId], cameras)
+
+  const camera = cameras.find((c) => c.id === cameraId)
 
   const renderItem = useCallback(
     ({ item }: { item: Detection }) => <DetectionCard detection={item} />,
@@ -76,7 +76,12 @@ export default function CameraDetailScreen({ route, navigation }: Props): React.
         keyExtractor={keyExtractor}
         ListHeaderComponent={
           <>
-            <LiveStreamView cameraId={cameraId} cameraName={cameraName} />
+            <LiveStreamView
+              cameraId={cameraId}
+              cameraName={cameraName}
+              showDetections={camera?.face_recognition ?? false}
+              liveBboxes={liveBboxes}
+            />
             {ListHeader}
           </>
         }
