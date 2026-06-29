@@ -79,7 +79,7 @@ export default function CameraDetailScreen({ route, navigation }: Props): React.
             <LiveStreamView
               cameraId={cameraId}
               cameraName={cameraName}
-              showDetections={camera?.face_recognition ?? false}
+              showDetections={camera?.face_recognition_enabled ?? false}
               liveBboxes={liveBboxes}
             />
             {ListHeader}

@@ -13,7 +13,8 @@ export type Detection = {
   name: string
   score: number
   bbox: [number, number, number, number]
-  ts: string
+  ts: string       // ISO timestamp of first appearance
+  leftAt?: string  // ISO timestamp when person left (set after STALE_MS of no detections)
 }
 
 // Shape of a single detection object sent by the face-service over WS.
@@ -28,14 +29,22 @@ export type RawDetection = {
 
 // Shape of the WebSocket message payload
 type WsEvent = {
-  ts: string
+  ts: number  // Unix seconds float from face-service
   detections: RawDetection[]
+}
+
+// Internal session tracking — one entry per active person per camera
+type ActiveSession = {
+  detectionId: string
+  leaveTimer: ReturnType<typeof setTimeout> | null
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 const MAX_DETECTIONS = 100
+// Mark person as "left" after this many ms of no detections
+const STALE_MS = 5000
 
 function toWsUrl(httpUrl: string, path: string): string {
   return httpUrl.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://') + path
@@ -58,6 +67,9 @@ export function useDetections(
   const [liveBboxes, setLiveBboxes] = useState<RawDetection[]>([])
   const staleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Per-person session tracking. Key: `${cameraId}:${personId|"unknown"}`
+  const activeSessionsRef = useRef(new Map<string, ActiveSession>())
+
   // Map from cameraId → WebSocket
   const socketsRef = useRef<Map<string, WebSocket>>(new Map())
   // Map from cameraId → reconnect timer
@@ -75,6 +87,10 @@ export function useDetections(
 
   const clearDetections = useCallback(() => {
     setDetections([])
+    activeSessionsRef.current.forEach((session) => {
+      if (session.leaveTimer) clearTimeout(session.leaveTimer)
+    })
+    activeSessionsRef.current.clear()
   }, [])
 
   const connectCamera = useCallback(
@@ -112,21 +128,53 @@ export function useDetections(
 
         if (!Array.isArray(payload.detections) || payload.detections.length === 0) return
 
-        const cameraName =
-          camerasRef.current.find((c) => c.id === id)?.name ?? id
+        const cameraName = camerasRef.current.find((c) => c.id === id)?.name ?? id
+        // face-service sends ts as Unix seconds float — convert to ms for JS Date
+        const firstSeenMs = Math.round(payload.ts * 1000)
 
-        const newEntries: Detection[] = payload.detections.map((det) => ({
-          id: `${payload.ts}-${det.person_id ?? 'unknown'}-${Math.random().toString(36).slice(2, 7)}`,
-          cameraId: id,
-          cameraName,
-          personId: det.person_id ?? null,
-          name: det.name ?? (det.person_id ? det.person_id : 'Unknown'),
-          score: det.score,
-          bbox: det.bbox,
-          ts: payload.ts,
-        }))
+        for (const det of payload.detections) {
+          const personKey = `${id}:${det.person_id ?? 'unknown'}`
+          const existing = activeSessionsRef.current.get(personKey)
 
-        setDetections((prev) => [...newEntries, ...prev].slice(0, MAX_DETECTIONS))
+          if (existing) {
+            // Person still in scene — reset the leave timer
+            if (existing.leaveTimer) clearTimeout(existing.leaveTimer)
+            const { detectionId } = existing
+            existing.leaveTimer = setTimeout(() => {
+              if (!mountedRef.current) return
+              const leftAt = new Date().toISOString()
+              setDetections((prev) =>
+                prev.map((d) => (d.id === detectionId ? { ...d, leftAt } : d)),
+              )
+              activeSessionsRef.current.delete(personKey)
+            }, STALE_MS)
+          } else {
+            // New appearance — create a session and add one card to the log
+            const detId = `${firstSeenMs}-${det.person_id ?? 'unknown'}-${Math.random().toString(36).slice(2, 7)}`
+            const newEntry: Detection = {
+              id: detId,
+              cameraId: id,
+              cameraName,
+              personId: det.person_id ?? null,
+              name: det.name ?? (det.person_id ? det.person_id : 'Unknown'),
+              score: det.score,
+              bbox: det.bbox,
+              ts: new Date(firstSeenMs).toISOString(),
+            }
+
+            const leaveTimer = setTimeout(() => {
+              if (!mountedRef.current) return
+              const leftAt = new Date().toISOString()
+              setDetections((prev) =>
+                prev.map((d) => (d.id === detId ? { ...d, leftAt } : d)),
+              )
+              activeSessionsRef.current.delete(personKey)
+            }, STALE_MS)
+
+            activeSessionsRef.current.set(personKey, { detectionId: detId, leaveTimer })
+            setDetections((prev) => [newEntry, ...prev].slice(0, MAX_DETECTIONS))
+          }
+        }
       }
 
       ws.onerror = () => {
@@ -159,6 +207,11 @@ export function useDetections(
       staleTimerRef.current = null
     }
     setLiveBboxes([])
+
+    activeSessionsRef.current.forEach((session) => {
+      if (session.leaveTimer) clearTimeout(session.leaveTimer)
+    })
+    activeSessionsRef.current.clear()
 
     socketsRef.current.forEach((ws) => {
       ws.onclose = null

@@ -13,9 +13,10 @@ import tokens from '../theme/tokens'
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function formatTimeAgo(ts: string): string {
-  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000)
-  if (diff < 60) return 'Just now'
+function formatTimeAgo(isoStr: string): string {
+  const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000)
+  if (diff < 5) return 'Just now'
+  if (diff < 60) return `${diff}s ago`
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
   return `${Math.floor(diff / 3600)}h ago`
 }
@@ -73,7 +74,12 @@ export default function DetectionCard({ detection }: Props): React.JSX.Element {
       </View>
 
       {/* Time */}
-      <Text style={styles.time}>{formatTimeAgo(detection.ts)}</Text>
+      <View style={styles.timeContainer}>
+        <Text style={styles.time}>{formatTimeAgo(detection.ts)}</Text>
+        {detection.leftAt != null && (
+          <Text style={styles.timeLeft}>left {formatTimeAgo(detection.leftAt)}</Text>
+        )}
+      </View>
     </Animated.View>
   )
 }
@@ -104,8 +110,17 @@ const styles = StyleSheet.create({
     color: tokens.colors.textMuted,
     marginTop: 2,
   },
+  timeContainer: {
+    alignItems: 'flex-end',
+  },
   time: {
     fontSize: 13,
     color: tokens.colors.textMuted,
+  },
+  timeLeft: {
+    fontSize: 11,
+    color: tokens.colors.textMuted,
+    marginTop: 2,
+    opacity: 0.7,
   },
 })

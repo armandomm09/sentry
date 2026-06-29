@@ -6,7 +6,7 @@ export type Camera = {
   name: string
   location: string
   rtsp_url: string
-  face_recognition: boolean
+  face_recognition_enabled: boolean
   auto_reconnect: boolean
 }
 
