@@ -147,6 +147,9 @@ func main() {
 
 			authed.GET("/streams", cameraH.AllStreamStatuses)
 
+			// Face-service detection WebSocket — proxied and auth-protected
+			authed.GET("/face/cameras/:id/ws", faceProxy.CameraWS(store))
+
 			// Face-recognition surface — proxied to Python service
 			authed.Any("/persons", faceProxy.Handler())
 			authed.Any("/persons/*proxyPath", faceProxy.Handler())
