@@ -84,7 +84,8 @@ When the user saves new augmentation settings, the frontend offers a "Re-generat
 Two new endpoints on the face-service:
 
 - `GET /augmentation/config` — returns current config (with defaults if never set)
-- `PUT /augmentation/config` — saves new config; optionally triggers re-enrollment if `regenerate: true` is passed
+- `PUT /augmentation/config` — saves new config
+- `POST /augmentation/regenerate` — re-processes all real photos (those without synthetic `photo_path` markers) through the current augmentation config; replaces existing augmented embeddings for all persons
 
 Config persisted as a JSON blob in a new `settings` table in `face.db`.
 
@@ -134,10 +135,12 @@ Each confirmed track holds a rolling window (size `vote_window`) of recognition 
 `_process_frames()` is updated:
 
 ```
-faces = rec.detect(frame)
+faces = rec.detect(frame)               # list[DetectedFace] with .embedding
 tracks = tracker.update(faces)          # associates detections, updates state
 for track in tracker.confirmed_tracks():
-    track.push_vote(match(track.best_embedding))
+    # track.current_embedding is the embedding from the detection matched
+    # to this track in the current frame; None if the track is in lost state
+    track.push_vote(match(track.current_embedding) if track.current_embedding else None)
     emit detection with track.voted_identity()
 ```
 
