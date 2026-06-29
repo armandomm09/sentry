@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS face_photos (
 );
 
 CREATE INDEX IF NOT EXISTS idx_photos_person ON face_photos(person_id);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -141,7 +146,7 @@ class Database:
             row = self._conn.execute(
                 """
                 SELECT p.id, p.name, p.created_at,
-                       (SELECT COUNT(*) FROM face_photos f WHERE f.person_id = p.id)
+                       (SELECT COUNT(*) FROM face_photos f WHERE f.person_id = p.id AND f.photo_path NOT LIKE '<augmented:%')
                 FROM persons p WHERE p.id = ?
                 """,
                 (person_id,),
@@ -155,7 +160,7 @@ class Database:
             rows = self._conn.execute(
                 """
                 SELECT p.id, p.name, p.created_at,
-                       (SELECT COUNT(*) FROM face_photos f WHERE f.person_id = p.id)
+                       (SELECT COUNT(*) FROM face_photos f WHERE f.person_id = p.id AND f.photo_path NOT LIKE '<augmented:%')
                 FROM persons p
                 ORDER BY LOWER(p.name)
                 """
@@ -191,7 +196,8 @@ class Database:
             rows = self._conn.execute(
                 """
                 SELECT id, person_id, photo_path, embedding, created_at
-                FROM face_photos WHERE person_id = ?
+                FROM face_photos
+                WHERE person_id = ? AND photo_path NOT LIKE '<augmented:%'
                 ORDER BY created_at
                 """,
                 (person_id,),
@@ -227,3 +233,36 @@ class Database:
             ).fetchall()
         for r in rows:
             yield r[0], r[1], _blob_to_emb(r[2])
+
+    # ---- settings ---------------------------------------------------------
+
+    def get_setting(self, key: str) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)
+            ).fetchone()
+        return row[0] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (key, value),
+            )
+            self._conn.commit()
+
+    def delete_augmented_photos(self, person_id: str | None = None) -> int:
+        """Delete augmented embedding rows (photo_path starts with '<augmented:').
+        Pass person_id to limit to one person, or None to clear all persons."""
+        with self._lock:
+            if person_id is not None:
+                cur = self._conn.execute(
+                    "DELETE FROM face_photos WHERE person_id = ? AND photo_path LIKE '<augmented:%'",
+                    (person_id,),
+                )
+            else:
+                cur = self._conn.execute(
+                    "DELETE FROM face_photos WHERE photo_path LIKE '<augmented:%'"
+                )
+            self._conn.commit()
+            return cur.rowcount

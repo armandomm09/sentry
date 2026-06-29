@@ -9,6 +9,7 @@ the originals so we can re-extract embeddings if the model is ever swapped.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -18,6 +19,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .augmentation import AugConfig, augment_and_embed
 from .db import Database, FacePhoto, Person
 from .recognizer import MatchIndex, Recognizer
 
@@ -93,6 +95,27 @@ class PersonStore:
             self._rebuild_index()
             return bool(paths)
 
+    # ---- augmentation config helpers --------------------------------------
+
+    def _get_aug_config(self) -> AugConfig:
+        val = self._db.get_setting("augmentation_config")
+        if val is None:
+            return AugConfig.default()
+        try:
+            return AugConfig.from_dict(json.loads(val))
+        except Exception:
+            return AugConfig.default()
+
+    def _add_augmented_for_image(
+        self, person_id: str, bgr: np.ndarray, aug_config: AugConfig
+    ) -> int:
+        """Generate and persist augmented embeddings. Returns count added."""
+        count = 0
+        for emb, label in augment_and_embed(bgr, self._rec, aug_config):
+            self._db.add_photo(person_id, label, emb)
+            count += 1
+        return count
+
     # ---- photo enrollment -------------------------------------------------
 
     def list_photos(self, person_id: str) -> list[FacePhoto]:
@@ -124,22 +147,76 @@ class PersonStore:
 
         with self._lock:
             photo = self._db.add_photo(person_id, str(rel_path), embedding)
+            aug_config = self._get_aug_config()
+            self._add_augmented_for_image(person_id, img, aug_config)
             self._rebuild_index()
         return photo
 
     def delete_photo(self, photo_id: str) -> bool:
         with self._lock:
+            # Find what person this photo belongs to before deleting
+            photos_before = {
+                p.id: p for person in self._db.list_persons()
+                for p in self._db.list_photos(person.id)
+            }
+            target = next((p for p in photos_before.values() if p.id == photo_id), None)
+            if target is None:
+                rel = self._db.delete_photo(photo_id)
+                if rel is None:
+                    return False
+                self._safe_unlink(rel)
+                self._rebuild_index()
+                return True
+
+            person_id = target.person_id
             rel = self._db.delete_photo(photo_id)
             if rel is None:
                 return False
             self._safe_unlink(rel)
+
+            # Rebuild augmented embeddings from remaining real photos
+            self._db.delete_augmented_photos(person_id)
+            aug_config = self._get_aug_config()
+            for photo in self._db.list_photos(person_id):
+                abs_path = self._photos_dir / photo.photo_path
+                bgr = self._decode_image_from_path(abs_path)
+                if bgr is not None:
+                    self._add_augmented_for_image(person_id, bgr, aug_config)
+
             self._rebuild_index()
             return True
+
+    def regenerate_augmented(self) -> int:
+        """Re-generate all augmented embeddings for every person using current config.
+
+        Deletes existing augmented rows, then re-processes every real photo
+        through the current augmentation config. Returns total embeddings added.
+        """
+        aug_config = self._get_aug_config()
+        with self._lock:
+            self._db.delete_augmented_photos()
+            total = 0
+            for person in self._db.list_persons():
+                for photo in self._db.list_photos(person.id):
+                    abs_path = self._photos_dir / photo.photo_path
+                    bgr = self._decode_image_from_path(abs_path)
+                    if bgr is not None:
+                        total += self._add_augmented_for_image(person.id, bgr, aug_config)
+            self._rebuild_index()
+        return total
 
     def photo_abs_path(self, rel_path: str) -> Path:
         return self._photos_dir / rel_path
 
     # ---- helpers ----------------------------------------------------------
+
+    @staticmethod
+    def _decode_image_from_path(path: Path) -> np.ndarray | None:
+        if not path.is_file():
+            return None
+        arr = np.fromfile(str(path), dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        return img if img is not None and img.size > 0 else None
 
     @staticmethod
     def _decode_image(raw: bytes) -> np.ndarray | None:

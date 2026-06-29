@@ -153,6 +153,8 @@ func main() {
 			// Face-recognition surface — proxied to Python service
 			authed.Any("/persons", faceProxy.Handler())
 			authed.Any("/persons/*proxyPath", faceProxy.Handler())
+			authed.Any("/augmentation", faceProxy.Handler())
+			authed.Any("/augmentation/*proxyPath", faceProxy.Handler())
 		}
 	}
 

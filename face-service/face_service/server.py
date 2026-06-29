@@ -40,6 +40,7 @@ log = logging.getLogger(__name__)
 CTX_PERSONS = web.AppKey("persons", PersonStore)
 CTX_SUPERVISOR = web.AppKey("supervisor", Supervisor)
 CTX_CONFIG = web.AppKey("config", Config)
+CTX_DB = web.AppKey("db", Database)
 
 
 def _json(payload: Any, status: int = 200) -> web.Response:
@@ -265,6 +266,41 @@ async def _ws_push(ws: web.WebSocketResponse, q: asyncio.Queue) -> None:
             return
 
 
+# ---- augmentation config --------------------------------------------------
+
+async def aug_config_get(request: web.Request) -> web.Response:
+    db = request.app[CTX_DB]
+    val = db.get_setting("augmentation_config")
+    if val is None:
+        from .augmentation import AugConfig
+        return _json(AugConfig.default().to_dict())
+    import json as _json_mod
+    return _json(_json_mod.loads(val))
+
+
+async def aug_config_put(request: web.Request) -> web.Response:
+    db = request.app[CTX_DB]
+    body = await _read_json(request)
+    if isinstance(body, web.Response):
+        return body
+    from .augmentation import AugConfig
+    import json as _json_mod
+    try:
+        cfg = AugConfig.from_dict(body)
+    except Exception as exc:
+        return _err(f"invalid config: {exc}")
+    db.set_setting("augmentation_config", _json_mod.dumps(cfg.to_dict()))
+    return _json(cfg.to_dict())
+
+
+async def aug_regenerate(request: web.Request) -> web.Response:
+    store = request.app[CTX_PERSONS]
+    sup = request.app[CTX_SUPERVISOR]
+    total = store.regenerate_augmented()
+    sup.bump_index_version()
+    return _json({"augmented_embeddings_created": total})
+
+
 # ---- helpers --------------------------------------------------------------
 
 async def _read_json(request: web.Request) -> dict | web.Response:
@@ -297,6 +333,7 @@ def make_app(config: Config) -> web.Application:
     supervisor = Supervisor(config)
 
     app[CTX_CONFIG] = config
+    app[CTX_DB] = db
     app[CTX_PERSONS] = persons
     app[CTX_SUPERVISOR] = supervisor
 
@@ -328,6 +365,10 @@ def make_app(config: Config) -> web.Application:
         web.post("/cameras", cameras_enable),
         web.delete(r"/cameras/{camera_id}", cameras_disable),
         web.get(r"/cameras/{camera_id}/ws", camera_ws),
+
+        web.get("/augmentation/config", aug_config_get),
+        web.put("/augmentation/config", aug_config_put),
+        web.post("/augmentation/regenerate", aug_regenerate),
     ])
 
     return app
