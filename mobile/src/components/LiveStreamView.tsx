@@ -1,9 +1,18 @@
-import React from 'react'
-import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native'
+import React, { useState } from 'react'
+import {
+  ActivityIndicator,
+  Image,
+  LayoutChangeEvent,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
 import { useCameraStream } from '../hooks/useCameraStream'
 import tokens from '../theme/tokens'
+import DetectionOverlay from './DetectionOverlay'
+import type { RawDetection } from '../hooks/useDetections'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -11,16 +20,31 @@ import tokens from '../theme/tokens'
 type Props = {
   cameraId: string
   cameraName: string
+  showDetections?: boolean
+  liveBboxes?: RawDetection[]
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-export default function LiveStreamView({ cameraId, cameraName }: Props): React.JSX.Element {
+export default function LiveStreamView({
+  cameraId,
+  cameraName,
+  showDetections = false,
+  liveBboxes = [],
+}: Props): React.JSX.Element {
   const { frameUri, connected, error } = useCameraStream(cameraId)
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
+
+  const handleLayout = (e: LayoutChangeEvent) => {
+    setContainerSize({
+      width: e.nativeEvent.layout.width,
+      height: e.nativeEvent.layout.height,
+    })
+  }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} onLayout={handleLayout}>
       {/* Loading state */}
       {frameUri === null && error === null && (
         <View style={styles.centered}>
@@ -46,7 +70,16 @@ export default function LiveStreamView({ cameraId, cameraName }: Props): React.J
         />
       )}
 
-      {/* Overlay pill */}
+      {/* Detection overlay */}
+      {showDetections && containerSize.width > 0 && (
+        <DetectionOverlay
+          detections={liveBboxes}
+          containerWidth={containerSize.width}
+          containerHeight={containerSize.height}
+        />
+      )}
+
+      {/* Status pill */}
       <View style={styles.overlay}>
         <View style={styles.pill}>
           <View
