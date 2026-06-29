@@ -1,5 +1,6 @@
 import type { CameraWithStream, CreateCameraPayload, StreamInfo } from '../types/camera'
 import type { Person, Photo, PhotoUploadResult } from '../types/person'
+import type { AugConfig } from '../types/augmentation'
 
 const BASE = '/api'
 
@@ -94,5 +95,17 @@ export const api = {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       return URL.createObjectURL(await res.blob())
     },
+  },
+  augmentation: {
+    getConfig: () => request<AugConfig>('/augmentation/config'),
+    setConfig: (cfg: AugConfig) =>
+      request<AugConfig>('/augmentation/config', {
+        method: 'PUT',
+        body: JSON.stringify(cfg),
+      }),
+    regenerate: () =>
+      request<{ augmented_embeddings_created: number }>('/augmentation/regenerate', {
+        method: 'POST',
+      }),
   },
 }

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { api } from '../../api/client'
 import { Button } from '../ui/Button'
 import { AddPersonModal } from './AddPersonModal'
+import { AugmentationSettings } from './AugmentationSettings'
 import { CameraToggleList } from './CameraToggleList'
 import { PersonCard } from './PersonCard'
 
@@ -82,6 +83,9 @@ export function FaceRecognitionSection() {
           )}
         </div>
       </div>
+
+      {/* Augmentation settings panel */}
+      <AugmentationSettings hasPersons={persons.length > 0} />
 
       {/* Cameras panel */}
       <div className="bg-ink-dark border border-ink-border rounded-r3 overflow-hidden">
