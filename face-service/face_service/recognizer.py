@@ -68,6 +68,21 @@ class Recognizer:
         if not providers:
             providers = ["CPUExecutionProvider"]
 
+        # TensorrtExecutionProvider appears in ort.get_available_providers() even
+        # when libnvinfer.so.10 is not installed. InsightFace falls back all the
+        # way to CPU-only when TRT fails at runtime instead of trying CUDA next.
+        # Detect this ahead of time: if the TRT shared library isn't present on
+        # LD_LIBRARY_PATH / ldconfig, remove TRT from the provider list so CUDA
+        # gets used directly.
+        if "TensorrtExecutionProvider" in providers:
+            import ctypes.util
+            if ctypes.util.find_library("nvinfer") is None:
+                log.info(
+                    "libnvinfer not found — removing TensorrtExecutionProvider "
+                    "(install TensorRT to enable it)"
+                )
+                providers = [p for p in providers if p != "TensorrtExecutionProvider"]
+
         # ctx_id picks the device for a GPU EP; -1 means CPU. If we ended up on
         # CPU only we must pass -1 or InsightFace tries to bind a CUDA context
         # we don't have.

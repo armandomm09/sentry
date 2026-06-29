@@ -6,15 +6,12 @@
 #
 #   macOS arm64                  -> CPU (CoreML EP picks up automatically)
 #   Linux x86_64 + NVIDIA GPU    -> onnxruntime-gpu from PyPI
-#   Linux aarch64 + NVIDIA GPU   -> onnxruntime-gpu from NVIDIA's pip index
-#                                   (PyPI has no aarch64 wheel; see below)
+#   Linux aarch64 + NVIDIA GPU   -> onnxruntime-gpu wheel from Ultralytics GitHub
+#                                   (PyPI has no aarch64 wheel; NVIDIA's pip index
+#                                    pypi.jetson-ai-lab.dev is defunct/NXDOMAIN)
 #   Anything else                -> CPU
 #
 # Override with --mode cpu | gpu, e.g. `./scripts/setup-face-service.sh --mode gpu`.
-#
-# On aarch64 + CUDA (DGX Spark, Jetson Thor, Grace Hopper) the GPU wheel comes
-# from a NVIDIA-maintained pip index. Default is jetson-ai-lab.dev's CUDA 12.6
-# SBSA channel; override via FACE_SERVICE_ORT_INDEX_URL or --gpu-index-url.
 #
 # Re-running is safe: venv creation is idempotent and pip will no-op when deps
 # are already satisfied.
@@ -27,12 +24,14 @@ VENV="$SVC/.venv"
 
 # --- args ------------------------------------------------------------------
 MODE="auto"                 # auto | cpu | gpu
-GPU_INDEX_URL="${FACE_SERVICE_ORT_INDEX_URL:-https://pypi.jetson-ai-lab.dev/sbsa/cu126}"
+
+# aarch64 GPU wheel: onnxruntime-gpu built for CUDA 12 + Python 3.12 + linux_aarch64
+# Hosted on GitHub (Ultralytics assets). pypi.jetson-ai-lab.dev is defunct (NXDOMAIN).
+ORT_AARCH64_WHEEL_URL="${FACE_SERVICE_ORT_WHEEL_URL:-https://github.com/ultralytics/assets/releases/download/v0.0.0/onnxruntime_gpu-1.24.0-cp312-cp312-linux_aarch64.whl}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode)            MODE="$2"; shift 2 ;;
-    --gpu-index-url)   GPU_INDEX_URL="$2"; shift 2 ;;
     -h|--help)
       sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
@@ -100,21 +99,53 @@ if [[ "$MODE" == "gpu" ]]; then
       GPU_INSTALLED=1
       ;;
     Linux-aarch64)
-      echo "Installing onnxruntime-gpu for aarch64 from $GPU_INDEX_URL"
-      echo "  (PyPI has no aarch64+CUDA wheel for ORT; using NVIDIA pip mirror)"
-      if pip install --extra-index-url "$GPU_INDEX_URL" \
-           -r "$SVC/requirements-gpu-aarch64.txt"; then
-        GPU_INSTALLED=1
+      # Detect Python minor version to select the correct wheel
+      PY_MINOR="$(python3 -c 'import sys; print(sys.version_info[1])')"
+      if [[ "$PY_MINOR" != "12" ]]; then
+        echo "WARNING: aarch64 GPU wheel is built for Python 3.12; you have 3.$PY_MINOR." >&2
+        echo "  Falling back to CPU ORT. Use Python 3.12 for GPU support." >&2
       else
-        echo
-        echo "  GPU install failed. Common fixes:" >&2
-        echo "    - point at a different CUDA version of the mirror, e.g." >&2
-        echo "        FACE_SERVICE_ORT_INDEX_URL=https://pypi.jetson-ai-lab.dev/sbsa/cu130 \\" >&2
-        echo "          ./scripts/setup-face-service.sh --mode gpu" >&2
-        echo "    - or drop a wheel into ./vendor/ and run:" >&2
-        echo "        pip install ./vendor/onnxruntime_gpu-*.whl" >&2
-        echo
-        echo "  Falling back to CPU ORT. Re-run with --mode gpu once a wheel works."
+        echo "Installing onnxruntime-gpu for aarch64 (Python 3.12, CUDA 12)…"
+        echo "  Source: $ORT_AARCH64_WHEEL_URL"
+        # Step 1: install GPU wheel (adds CUDA .so but omits __init__.py and the
+        # ABI-tagged pybind .so Python prefers).
+        if pip install --no-deps "$ORT_AARCH64_WHEEL_URL"; then
+          # Step 2: install CPU onnxruntime to get __init__.py. Use 1.23.2 because:
+          # - 1.24.0 doesn't exist on PyPI for aarch64
+          # - 1.24.1 added OrtEpAssignedNode which the 1.24.0 GPU pybind lacks
+          # - 1.23.2 __init__.py imports only symbols present in 1.24.0 GPU pybind
+          pip install "onnxruntime==1.23.2"
+
+          # Step 3: the CPU install overwrites onnxruntime_pybind11_state with
+          # the ABI-tagged CPU .so. Replace it with the GPU version so Python
+          # loads the GPU implementation (Python prefers .cpython-3XX-*.so over
+          # plain .so when both exist).
+          CAPI_DIR="$(python3 -c "import onnxruntime; import os; print(os.path.join(os.path.dirname(onnxruntime.__file__), 'capi'))")"
+          GPU_SO="$CAPI_DIR/onnxruntime_pybind11_state.so"
+          ABI_SO="$CAPI_DIR/onnxruntime_pybind11_state.cpython-312-aarch64-linux-gnu.so"
+          if [[ -f "$GPU_SO" && -f "$ABI_SO" ]]; then
+            gpu_size=$(stat -c%s "$GPU_SO")
+            cpu_size=$(stat -c%s "$ABI_SO")
+            if [[ "$gpu_size" -gt "$cpu_size" ]]; then
+              cp "$GPU_SO" "$ABI_SO"
+              echo "  Patched pybind .so: replaced CPU ($cpu_size B) with GPU ($gpu_size B)"
+            fi
+          fi
+
+          # Step 4: ORT 1.24+ links against cuDNN 9. Install the pip-distributed
+          # cuDNN 9 and cuBLAS (run.sh adds their lib dirs to LD_LIBRARY_PATH).
+          echo "Installing NVIDIA CUDA runtime libraries (cuDNN 9, cuBLAS)…"
+          pip install "nvidia-cudnn-cu12>=9" "nvidia-cublas-cu12"
+          GPU_INSTALLED=1
+        else
+          echo
+          echo "  GPU wheel download failed." >&2
+          echo "  You can manually install by downloading the .whl and running:" >&2
+          echo "    pip install --no-deps /path/to/onnxruntime_gpu-*.whl" >&2
+          echo "  Or override the URL: FACE_SERVICE_ORT_WHEEL_URL=<url> ./scripts/setup-face-service.sh --mode gpu" >&2
+          echo
+          echo "  Falling back to CPU ORT."
+        fi
       fi
       ;;
     Darwin-*)

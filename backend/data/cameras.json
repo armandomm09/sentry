@@ -1,11 +1,47 @@
 [
   {
+    "id": "aeaceb01-d68f-4e55-b8a2-ff110360fcb9",
+    "name": "Bar",
+    "location": "Bar",
+    "rtsp_url": "rtsp://admin:D1macm1l2026@172.17.7.97:554/Streaming/Channels/101",
+    "auto_reconnect": true,
+    "face_recognition_enabled": false,
+    "created_at": "2026-05-27T12:22:31.177080455-06:00"
+  },
+  {
+    "id": "1765e345-ce6f-48c5-b1c2-ba04aa12767b",
+    "name": "Garage",
+    "location": "Garage",
+    "rtsp_url": "rtsp://admin:D1macm1l2026@172.17.7.2:554/Streaming/Channels/101",
+    "auto_reconnect": true,
+    "face_recognition_enabled": true,
+    "created_at": "2026-05-27T10:37:53.027273536-06:00"
+  },
+  {
+    "id": "a133f190-b3a6-4f2c-8b14-fdc50f434ec2",
+    "name": "Porton",
+    "location": "Porton",
+    "rtsp_url": "rtsp://admin:D1macm1l2026@172.17.7.5:554/Streaming/Channels/101",
+    "auto_reconnect": true,
+    "face_recognition_enabled": true,
+    "created_at": "2026-05-28T16:38:39.847147988-06:00"
+  },
+  {
+    "id": "432db53d-7381-4f89-afa9-2bf4761142d7",
+    "name": "webcam",
+    "location": "webcam",
+    "rtsp_url": "ws://172.17.7.227:8765",
+    "auto_reconnect": true,
+    "face_recognition_enabled": true,
+    "created_at": "2026-06-28T14:34:00.355475987-06:00"
+  },
+  {
     "id": "8cd9285e-e232-482a-8fa3-1858fe7755e5",
     "name": "Patio",
     "location": "Trasero",
     "rtsp_url": "rtsp://admin:D1macm1l2026@172.17.7.7:554/Streaming/Channels/101",
     "auto_reconnect": true,
-    "face_recognition_enabled": false,
+    "face_recognition_enabled": true,
     "created_at": "2026-05-28T16:52:34.218400271-06:00"
   },
   {
@@ -14,7 +50,7 @@
     "location": "Cuarto de Lavado",
     "rtsp_url": "rtsp://admin:D1macm1l2026@172.17.7.6:554/Streaming/Channels/101",
     "auto_reconnect": true,
-    "face_recognition_enabled": false,
+    "face_recognition_enabled": true,
     "created_at": "2026-05-28T16:46:54.520211605-06:00"
   },
   {
@@ -34,32 +70,5 @@
     "auto_reconnect": true,
     "face_recognition_enabled": false,
     "created_at": "2026-05-28T16:55:21.26560978-06:00"
-  },
-  {
-    "id": "aeaceb01-d68f-4e55-b8a2-ff110360fcb9",
-    "name": "Bar",
-    "location": "Bar",
-    "rtsp_url": "rtsp://admin:D1macm1l2026@172.17.7.97:554/Streaming/Channels/101",
-    "auto_reconnect": true,
-    "face_recognition_enabled": false,
-    "created_at": "2026-05-27T12:22:31.177080455-06:00"
-  },
-  {
-    "id": "1765e345-ce6f-48c5-b1c2-ba04aa12767b",
-    "name": "Garage",
-    "location": "Garage",
-    "rtsp_url": "rtsp://admin:D1macm1l2026@172.17.7.2:554/Streaming/Channels/101",
-    "auto_reconnect": true,
-    "face_recognition_enabled": false,
-    "created_at": "2026-05-27T10:37:53.027273536-06:00"
-  },
-  {
-    "id": "a133f190-b3a6-4f2c-8b14-fdc50f434ec2",
-    "name": "Porton",
-    "location": "Porton",
-    "rtsp_url": "rtsp://admin:D1macm1l2026@172.17.7.5:554/Streaming/Channels/101",
-    "auto_reconnect": true,
-    "face_recognition_enabled": false,
-    "created_at": "2026-05-28T16:38:39.847147988-06:00"
   }
 ]

@@ -34,3 +34,5 @@ __pycache__*
 
 CLAUDE.md
 .claude/settings.local.json
+
+backend/data

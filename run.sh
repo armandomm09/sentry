@@ -21,7 +21,16 @@ BACKEND_PID=$!
 if [[ -x "$FACE_VENV/bin/python" ]]; then
   echo "Starting Sentry face-service on :8090…"
   cd "$ROOT/face-service"
-  "$FACE_VENV/bin/python" -m face_service &
+  # Include cuDNN 9 and cuBLAS from the venv's NVIDIA packages so ORT's
+  # CUDAExecutionProvider can find them (the system ships cuDNN 8 only).
+  NVIDIA_LIB="$FACE_VENV/lib/python3.12/site-packages/nvidia"
+  FACE_LD_LIBRARY_PATH=""
+  for pkg in cudnn cublas; do
+    lib_dir="$NVIDIA_LIB/$pkg/lib"
+    [[ -d "$lib_dir" ]] && FACE_LD_LIBRARY_PATH="$lib_dir:$FACE_LD_LIBRARY_PATH"
+  done
+  LD_LIBRARY_PATH="${FACE_LD_LIBRARY_PATH}${LD_LIBRARY_PATH:-}" \
+    "$FACE_VENV/bin/python" -m face_service &
   FACE_PID=$!
 else
   echo ""

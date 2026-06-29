@@ -190,6 +190,10 @@ async def _process_frames(
                 log.warning("index reload failed: %s", exc)
 
         last_processed = time.monotonic()
+        # Stamp ts before inference so it approximates frame capture time rather
+        # than inference completion time. The HLS PDT is also anchored to frame
+        # capture, so comparing the two gives accurate bbox/video sync.
+        frame_ts = time.time()
 
         try:
             faces = rec.detect(frame)
@@ -224,7 +228,7 @@ async def _process_frames(
         event = {
             "type": "detections",
             "camera_id": camera_id,
-            "ts": time.time(),
+            "ts": frame_ts,
             "frame_w": frame_w,
             "frame_h": frame_h,
             "detections": detections,
