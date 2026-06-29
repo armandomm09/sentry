@@ -3,7 +3,6 @@ package stream
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -46,8 +45,7 @@ func newRelay(cameraID, outDir string) *Relay {
 	}
 }
 
-// start launches the HLS encoder + source goroutines. The context passed in is
-// used as the parent; the relay creates a child context that it cancels on stop().
+// start launches the source goroutine and the encoder-restart loop.
 func (r *Relay) start(parent context.Context, source FrameSource) error {
 	if err := os.MkdirAll(r.outDir, 0755); err != nil {
 		return fmt.Errorf("relay mkdir %s: %w", r.outDir, err)
@@ -56,15 +54,9 @@ func (r *Relay) start(parent context.Context, source FrameSource) error {
 	ctx, cancel := context.WithCancel(parent)
 	r.cancel = cancel
 
-	hlsIn, err := r.startHLSEncoder(ctx)
-	if err != nil {
-		cancel()
-		return fmt.Errorf("relay hls encoder: %w", err)
-	}
-
 	frames := make(chan []byte, 32)
 	go source.Run(ctx, frames)
-	go r.distribute(ctx, frames, hlsIn)
+	go r.encoderLoop(ctx, frames)
 	return nil
 }
 
@@ -74,9 +66,49 @@ func (r *Relay) stop() {
 	}
 }
 
+// encoderLoop starts the HLS encoder and runs distribute; on failure it restarts
+// the encoder while keeping the source goroutine alive.
+func (r *Relay) encoderLoop(ctx context.Context, frames <-chan []byte) {
+	for {
+		if ctx.Err() != nil {
+			r.setStatus("offline", "")
+			return
+		}
+
+		hlsIn, err := r.startHLSEncoder(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				log.Printf("[relay] hls encoder start failed for %s: %v", r.cameraID, err)
+			}
+			select {
+			case <-ctx.Done():
+				r.setStatus("offline", "")
+				return
+			case <-time.After(3 * time.Second):
+			}
+			continue
+		}
+
+		r.distribute(ctx, frames, hlsIn)
+
+		if ctx.Err() != nil {
+			r.setStatus("offline", "")
+			return
+		}
+		log.Printf("[relay] hls encoder for %s stopped, restarting in 3s", r.cameraID)
+		select {
+		case <-ctx.Done():
+			r.setStatus("offline", "")
+			return
+		case <-time.After(3 * time.Second):
+		}
+	}
+}
+
 // startHLSEncoder launches ffmpeg reading MJPEG from stdin and emitting HLS.
-// Returns the stdin pipe so distribute() can feed frames.
-func (r *Relay) startHLSEncoder(ctx context.Context) (io.WriteCloser, error) {
+// Uses os.Pipe() instead of cmd.StdinPipe() so we can set write deadlines and
+// avoid blocking forever if the encoder process stops consuming input.
+func (r *Relay) startHLSEncoder(ctx context.Context) (*os.File, error) {
 	playlist := filepath.Join(r.outDir, "stream.m3u8")
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-loglevel", "error",
@@ -100,24 +132,31 @@ func (r *Relay) startHLSEncoder(ctx context.Context) (io.WriteCloser, error) {
 		"-hls_segment_filename", filepath.Join(r.outDir, "seg%05d.ts"),
 		playlist,
 	)
-	pipe, err := cmd.StdinPipe()
+
+	// os.Pipe gives us an *os.File write end that supports SetWriteDeadline,
+	// preventing the relay from blocking if the encoder stops reading its stdin.
+	pr, pw, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
+	cmd.Stdin = pr
+
 	if err := cmd.Start(); err != nil {
-		pipe.Close()
+		pr.Close()
+		pw.Close()
 		return nil, err
 	}
-	// Reap the process when it exits to avoid zombies.
+	pr.Close() // child holds the read end; parent only needs the write end
+
 	go func() {
 		if err := cmd.Wait(); err != nil && ctx.Err() == nil {
 			log.Printf("[relay] hls encoder for %s exited: %v", r.cameraID, err)
 		}
 	}()
-	return pipe, nil
+	return pw, nil
 }
 
-func (r *Relay) distribute(ctx context.Context, frames <-chan []byte, hlsIn io.WriteCloser) {
+func (r *Relay) distribute(ctx context.Context, frames <-chan []byte, hlsIn *os.File) {
 	defer hlsIn.Close()
 	r.setStatus("reconnecting", "")
 
@@ -143,12 +182,18 @@ func (r *Relay) distribute(ctx context.Context, frames <-chan []byte, hlsIn io.W
 			lastFrame = time.Now()
 			r.setStatus("live", "")
 
-			// Feed HLS encoder; ignore errors (encoder may have exited on ctx cancel).
+			// Write to HLS encoder with a deadline so a stuck encoder
+			// (not reading stdin) causes distribute to return and encoderLoop
+			// to restart the encoder instead of blocking forever.
+			_ = hlsIn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := hlsIn.Write(frame); err != nil {
 				if ctx.Err() == nil {
-					log.Printf("[relay] hls write error for %s: %v", r.cameraID, err)
+					log.Printf("[relay] hls write error for %s: %v; restarting encoder", r.cameraID, err)
+					r.setStatus("reconnecting", "hls encoder error")
 				}
+				return
 			}
+			_ = hlsIn.SetWriteDeadline(time.Time{}) // clear deadline after successful write
 
 			// Fan out to WebSocket subscribers (drop if slow).
 			r.mu.RLock()

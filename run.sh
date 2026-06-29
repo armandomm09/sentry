@@ -9,9 +9,15 @@ FACE_VENV="$ROOT/face-service/.venv"
 # Kill any previously running sentry processes before starting fresh.
 echo "Stopping existing sentry processes…"
 pkill -f "go run \." 2>/dev/null || true
+pkill -f "exe/backend" 2>/dev/null || true   # compiled backend binary left by go run
 pkill -f "face_service" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
-sleep 1
+# Kill any FFmpeg processes writing to sentry HLS dirs (orphans from prior sessions)
+pkill -f "sentry/streams" 2>/dev/null || true
+sleep 2
+
+# Clean up stale HLS segments so new relays start with a clean slate
+rm -rf /tmp/sentry/streams 2>/dev/null || true
 
 echo "Starting Sentry backend on :8080…"
 cd "$ROOT/backend"
