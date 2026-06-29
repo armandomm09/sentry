@@ -13,7 +13,9 @@ import (
 	"github.com/dim/sentry/backend/stream"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	_ "github.com/golang-jwt/jwt/v5"
 	_ "golang.org/x/crypto/bcrypt"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
