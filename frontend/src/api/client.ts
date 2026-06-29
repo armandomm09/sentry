@@ -3,12 +3,33 @@ import type { Person, Photo, PhotoUploadResult } from '../types/person'
 
 const BASE = '/api'
 
+function getToken(): string {
+  return localStorage.getItem('sentry_token') ?? ''
+}
+
+function handleUnauthorized() {
+  localStorage.removeItem('sentry_token')
+  window.location.href = '/login'
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = init?.body instanceof FormData
   const headers: Record<string, string> = isFormData
     ? { ...(init?.headers as Record<string, string> | undefined) }
     : { 'Content-Type': 'application/json', ...(init?.headers as Record<string, string> | undefined) }
+
+  const token = getToken()
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
   const res = await fetch(`${BASE}${path}`, { ...init, headers })
+
+  if (res.status === 401) {
+    handleUnauthorized()
+    throw new Error('Unauthorized')
+  }
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`)
