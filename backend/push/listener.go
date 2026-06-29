@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -25,6 +26,8 @@ type Listener struct {
 	faceBaseURL string // e.g. "http://127.0.0.1:8090"
 	notifier    *Notifier
 	store       CameraNameStore
+	mu          sync.Mutex
+	lastSent    map[string]time.Time // key: cameraID+":"+personKey
 }
 
 func NewListener(faceBaseURL string, notifier *Notifier, store CameraNameStore) *Listener {
@@ -32,6 +35,7 @@ func NewListener(faceBaseURL string, notifier *Notifier, store CameraNameStore) 
 		faceBaseURL: faceBaseURL,
 		notifier:    notifier,
 		store:       store,
+		lastSent:    make(map[string]time.Time),
 	}
 }
 
@@ -80,6 +84,25 @@ func (l *Listener) connectAndRead(wsURL, cameraID string) error {
 			if !isKnown {
 				name = ""
 			}
+
+			personKey := det.PersonID
+			if personKey == "" {
+				personKey = "unknown"
+			}
+			cooldownKey := cameraID + ":" + personKey
+
+			l.mu.Lock()
+			lastTime, exists := l.lastSent[cooldownKey]
+			shouldSend := !exists || time.Since(lastTime) >= 60*time.Second
+			if shouldSend {
+				l.lastSent[cooldownKey] = time.Now()
+			}
+			l.mu.Unlock()
+
+			if !shouldSend {
+				continue
+			}
+
 			l.notifier.Send(Message{
 				CameraID:   cameraID,
 				CameraName: cameraName,

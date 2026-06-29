@@ -103,8 +103,9 @@ func main() {
 
 	api := r.Group("/api")
 	{
-		// Public: login only
+		// Public routes (no auth)
 		api.POST("/auth/login", authH.Login)
+		api.GET("/cameras/:id/frames", cameraH.FramesWS) // face-service needs this without auth
 
 		// All other /api routes require auth
 		authed := api.Group("")
@@ -142,7 +143,6 @@ func main() {
 				cameras.POST("/:id/stream/start", cameraH.StreamStart)
 				cameras.POST("/:id/stream/stop", cameraH.StreamStop)
 				cameras.GET("/:id/stream/status", cameraH.StreamStatus)
-				cameras.GET("/:id/frames", cameraH.FramesWS)
 			}
 
 			authed.GET("/streams", cameraH.AllStreamStatuses)

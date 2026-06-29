@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/dim/sentry/backend/db"
@@ -32,9 +33,12 @@ type expoMessage struct {
 }
 
 type Notifier struct {
-	db    *db.DB
-	store CameraNameStore
-	ch    chan Message
+	db        *db.DB
+	store     CameraNameStore
+	ch        chan Message
+	mu        sync.RWMutex
+	subCache  []*db.PushSubscription
+	cacheTime time.Time
 }
 
 func NewNotifier(database *db.DB, store CameraNameStore) *Notifier {
@@ -63,8 +67,28 @@ func (n *Notifier) processLoop() {
 	}
 }
 
-func (n *Notifier) dispatch(msg Message) {
+func (n *Notifier) getSubscriptions() ([]*db.PushSubscription, error) {
+	n.mu.RLock()
+	if time.Since(n.cacheTime) < 30*time.Second && n.subCache != nil {
+		subs := n.subCache
+		n.mu.RUnlock()
+		return subs, nil
+	}
+	n.mu.RUnlock()
+
 	subs, err := n.db.ListPushSubscriptions()
+	if err != nil {
+		return nil, err
+	}
+	n.mu.Lock()
+	n.subCache = subs
+	n.cacheTime = time.Now()
+	n.mu.Unlock()
+	return subs, nil
+}
+
+func (n *Notifier) dispatch(msg Message) {
+	subs, err := n.getSubscriptions()
 	if err != nil {
 		log.Printf("[push] list subscriptions: %v", err)
 		return
