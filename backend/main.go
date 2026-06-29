@@ -7,22 +7,46 @@ import (
 	"os"
 	"time"
 
+	"github.com/dim/sentry/backend/auth"
+	"github.com/dim/sentry/backend/db"
 	"github.com/dim/sentry/backend/face"
 	"github.com/dim/sentry/backend/handlers"
+	"github.com/dim/sentry/backend/push"
 	"github.com/dim/sentry/backend/storage"
 	"github.com/dim/sentry/backend/stream"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	_ "github.com/golang-jwt/jwt/v5"
-	_ "golang.org/x/crypto/bcrypt"
-	_ "modernc.org/sqlite"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
 	dataDir := envOr("SENTRY_DATA_DIR", "./data")
+	dbPath := envOr("SENTRY_DB_PATH", "./data/sentry.db")
 	port := envOr("PORT", "8080")
 	faceURL := envOr("FACE_SERVICE_URL", "http://127.0.0.1:8090")
 
+	// SQLite database
+	database, err := db.Open(dbPath)
+	if err != nil {
+		log.Fatalf("db init: %v", err)
+	}
+	defer database.Close()
+
+	// Seed default admin if users table is empty
+	if empty, err := database.IsEmpty(); err != nil {
+		log.Fatalf("db check: %v", err)
+	} else if empty {
+		hash, _ := bcrypt.GenerateFromPassword([]byte("sentry123"), bcrypt.DefaultCost)
+		if _, err := database.CreateUser("admin", string(hash), true); err != nil {
+			log.Fatalf("seed admin: %v", err)
+		}
+		log.Println("[startup] Created default admin user: username=admin password=sentry123")
+	}
+
+	// JWT manager
+	jwtMgr := auth.NewManager(auth.SecretFromEnv())
+
+	// Camera storage (cameras.json)
 	store, err := storage.NewJSONStore(dataDir)
 	if err != nil {
 		log.Fatalf("storage init: %v", err)
@@ -35,13 +59,19 @@ func main() {
 		log.Fatalf("face proxy init: %v", err)
 	}
 
-	// Auto-start streams for cameras with auto_reconnect=true
+	// Push notification engine
+	notifier := push.NewNotifier(database, store)
+	notifier.Start()
+	listener := push.NewListener(faceURL, notifier, store)
+	for _, cam := range store.List() {
+		if cam.FaceRecognitionEnabled {
+			listener.WatchCamera(cam.ID)
+		}
+	}
+
+	// Auto-start streams
 	manager.StartAll(store.List())
 
-	// Best-effort sync of face-rec workers. Runs in a goroutine so a slow
-	// face-service can't delay the HTTP server coming up. We also run a
-	// periodic reconciler so the pipeline self-heals if face-service is
-	// restarted while the Go backend is up — its worker pool is in-memory only.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -51,7 +81,6 @@ func main() {
 
 	r := gin.Default()
 
-	// CORS — allow all origins in dev; tighten for production
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -59,40 +88,69 @@ func main() {
 		AllowCredentials: false,
 	}))
 
-	// Serve HLS segments from /hls/:camera_id/*
 	hlsRoot := stream.HLSDir()
 	r.Static("/hls", hlsRoot)
 
-	// Health
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	h := handlers.NewCameraHandler(store, manager, faceClient)
+	// Handlers
+	cameraH := handlers.NewCameraHandler(store, manager, faceClient)
+	authH := handlers.NewAuthHandler(database, jwtMgr)
+	userH := handlers.NewUserHandler(database)
+	pushH := handlers.NewPushHandler(database)
 
 	api := r.Group("/api")
 	{
-		cameras := api.Group("/cameras")
+		// Public: login only
+		api.POST("/auth/login", authH.Login)
+
+		// All other /api routes require auth
+		authed := api.Group("")
+		authed.Use(jwtMgr.RequireAuth())
 		{
-			cameras.GET("", h.List)
-			cameras.POST("", h.Create)
-			cameras.GET("/:id", h.Get)
-			cameras.PUT("/:id", h.Update)
-			cameras.DELETE("/:id", h.Delete)
+			authed.POST("/auth/logout", authH.Logout)
 
-			cameras.POST("/:id/stream/start", h.StreamStart)
-			cameras.POST("/:id/stream/stop", h.StreamStop)
-			cameras.GET("/:id/stream/status", h.StreamStatus)
-			// WebSocket endpoint: streams JPEG frames to subscribers (e.g. face-service).
-			cameras.GET("/:id/frames", h.FramesWS)
+			// User management (admin only)
+			adminUsers := authed.Group("/users")
+			adminUsers.Use(jwtMgr.RequireAdmin())
+			{
+				adminUsers.GET("", userH.List)
+				adminUsers.POST("", userH.Create)
+				adminUsers.DELETE("/:id", userH.Delete)
+			}
+			// Password change — auth only (handler enforces own-user or admin)
+			authed.PATCH("/users/:id/password", userH.ChangePassword)
+
+			// Push subscriptions
+			pushGroup := authed.Group("/push")
+			{
+				pushGroup.POST("/register", pushH.Register)
+				pushGroup.GET("/subscription", pushH.Get)
+				pushGroup.DELETE("/subscription", pushH.Delete)
+			}
+
+			// Cameras
+			cameras := authed.Group("/cameras")
+			{
+				cameras.GET("", cameraH.List)
+				cameras.POST("", cameraH.Create)
+				cameras.GET("/:id", cameraH.Get)
+				cameras.PUT("/:id", cameraH.Update)
+				cameras.DELETE("/:id", cameraH.Delete)
+				cameras.POST("/:id/stream/start", cameraH.StreamStart)
+				cameras.POST("/:id/stream/stop", cameraH.StreamStop)
+				cameras.GET("/:id/stream/status", cameraH.StreamStatus)
+				cameras.GET("/:id/frames", cameraH.FramesWS)
+			}
+
+			authed.GET("/streams", cameraH.AllStreamStatuses)
+
+			// Face-recognition surface — proxied to Python service
+			authed.Any("/persons", faceProxy.Handler())
+			authed.Any("/persons/*proxyPath", faceProxy.Handler())
 		}
-
-		api.GET("/streams", h.AllStreamStatuses)
-
-		// Face-recognition surface: reverse-proxied to the Python service.
-		// The proxy strips /api so /api/persons/* -> face-service /persons/*.
-		api.Any("/persons", faceProxy.Handler())
-		api.Any("/persons/*proxyPath", faceProxy.Handler())
 	}
 
 	log.Printf("Sentry backend listening on :%s", port)

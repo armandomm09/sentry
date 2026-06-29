@@ -97,3 +97,13 @@ func (s *JSONStore) Delete(id string) error {
 	delete(s.cameras, id)
 	return s.save()
 }
+
+// GetCameraName returns the camera name for a given ID, or the ID itself if not found.
+func (s *JSONStore) GetCameraName(id string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if c, ok := s.cameras[id]; ok {
+		return c.Name
+	}
+	return id
+}
