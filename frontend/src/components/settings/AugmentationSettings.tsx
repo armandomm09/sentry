@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, RotateCcw, Sliders } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import type { AugConfig } from '../../types/augmentation'
 import { DEFAULT_AUG_CONFIG } from '../../types/augmentation'
@@ -231,6 +231,11 @@ function ParamRow({
   step?: number
   onChange: (v: number) => void
 }) {
+  const [local, setLocal] = useState(value)
+
+  // Keep local in sync if parent value changes (e.g. reset to defaults)
+  useEffect(() => { setLocal(value) }, [value])
+
   return (
     <div className="flex items-center gap-3">
       <span className="font-sans text-[11px] text-fg-3 w-28 flex-shrink-0">{label}</span>
@@ -239,12 +244,13 @@ function ParamRow({
         min={min}
         max={max}
         step={step}
-        value={value}
-        onChange={e => onChange(Number(e.target.value))}
+        value={local}
+        onChange={e => setLocal(Number(e.target.value))}
+        onPointerUp={e => onChange(Number((e.target as HTMLInputElement).value))}
         className="flex-1 accent-dim-red"
       />
       <span className="font-mono text-[11px] text-fg-2 w-10 text-right tabular-nums">
-        {value}
+        {local}
       </span>
     </div>
   )
