@@ -1,22 +1,21 @@
 # docker/face-service/Dockerfile
 FROM python:3.12-slim
 
+WORKDIR /app
+
+# ── Base Python requirements (CPU ORT included) ──────────────────────────────
 # System libs needed by OpenCV headless and insightface.
 # build-essential / g++ are needed to compile insightface's Cython extension;
 # they are removed after the pip install to keep the image lean.
+COPY face-service/requirements.txt ./requirements.txt
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 \
         libglib2.0-0 \
         curl \
         wget \
         build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# ── Base Python requirements (CPU ORT included) ──────────────────────────────
-COPY face-service/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove build-essential \
     && rm -rf /var/lib/apt/lists/*
 
