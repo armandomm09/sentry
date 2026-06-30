@@ -15,6 +15,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
+import * as SecureStore from 'expo-secure-store'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 
 import type { HomeStackParamList } from '../navigation/types'
@@ -23,6 +24,10 @@ import { getCameras, getStreams } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import tokens from '../theme/tokens'
 import CameraCard from '../components/CameraCard'
+import CameraPreviewCard from '../components/CameraPreviewCard'
+
+type ViewMode = 'list' | 'cards'
+const VIEW_MODE_KEY = 'home_view_mode'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,6 +59,33 @@ function SkeletonCard(): React.JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
+// View-mode segmented control (cards | list)
+// ---------------------------------------------------------------------------
+function ViewToggle({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode) => void }): React.JSX.Element {
+  return (
+    <View style={styles.toggle}>
+      {(['cards', 'list'] as const).map((m) => {
+        const active = mode === m
+        return (
+          <Pressable
+            key={m}
+            onPress={() => { onChange(m) }}
+            style={[styles.toggleBtn, active && styles.toggleBtnActive]}
+            hitSlop={6}
+          >
+            <Ionicons
+              name={m === 'cards' ? 'grid-outline' : 'list-outline'}
+              size={18}
+              color={active ? tokens.colors.text : tokens.colors.textMuted}
+            />
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // HomeScreen
 // ---------------------------------------------------------------------------
 export default function HomeScreen({ navigation }: Props): React.JSX.Element {
@@ -64,6 +96,19 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>('list')
+
+  // Restore the persisted view mode on mount.
+  useEffect(() => {
+    void SecureStore.getItemAsync(VIEW_MODE_KEY).then((v) => {
+      if (v === 'cards' || v === 'list') setViewMode(v)
+    })
+  }, [])
+
+  const handleViewModeChange = useCallback((m: ViewMode) => {
+    setViewMode(m)
+    void SecureStore.setItemAsync(VIEW_MODE_KEY, m)
+  }, [])
 
   const fetchData = useCallback(async (): Promise<void> => {
     if (!baseUrl || !token) return
@@ -101,22 +146,30 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
   )
 
   const renderItem = useCallback(
-    ({ item }: { item: Camera }) => (
-      <CameraCard
-        camera={item}
-        streamStatus={streams[item.id]}
-        onPress={() => { handleCameraPress(item) }}
-      />
-    ),
-    [streams, handleCameraPress],
+    ({ item }: { item: Camera }) => {
+      const Card = viewMode === 'cards' ? CameraPreviewCard : CameraCard
+      return (
+        <Card
+          camera={item}
+          streamStatus={streams[item.id]}
+          onPress={() => { handleCameraPress(item) }}
+        />
+      )
+    },
+    [streams, handleCameraPress, viewMode],
   )
 
   const keyExtractor = useCallback((item: Camera) => item.id, [])
 
   const ListHeader = (
-    <View>
-      <Text style={styles.title}>Sentry</Text>
-      <Text style={styles.subtitle}>{cameras.length} camera</Text>
+    <View style={styles.header}>
+      <View>
+        <Text style={styles.title}>Sentry</Text>
+        <Text style={styles.subtitle}>
+          {cameras.length} {cameras.length === 1 ? 'camera' : 'cameras'}
+        </Text>
+      </View>
+      <ViewToggle mode={viewMode} onChange={handleViewModeChange} />
     </View>
   )
 
@@ -185,6 +238,29 @@ const styles = StyleSheet.create({
   centered: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingRight: 16,
+  },
+  toggle: {
+    flexDirection: 'row',
+    backgroundColor: tokens.colors.surface1,
+    borderRadius: tokens.radii.full,
+    padding: 3,
+    gap: 2,
+  },
+  toggleBtn: {
+    width: 36,
+    height: 32,
+    borderRadius: tokens.radii.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toggleBtnActive: {
+    backgroundColor: tokens.colors.surface2,
   },
   title: {
     fontSize: 28,
