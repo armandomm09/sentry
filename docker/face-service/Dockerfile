@@ -33,8 +33,9 @@ RUN if [ "$GPU" = "1" ]; then \
         pip install --no-cache-dir "onnxruntime==1.23.2" && \
         # Step 3: Patch ABI-tagged .so with GPU .so
         python /tmp/patch_ort.py && \
-        # Step 4: CUDA runtime libs (cuDNN 9, cuBLAS) — entrypoint adds to LD_LIBRARY_PATH
-        pip install --no-cache-dir "nvidia-cudnn-cu12>=9" "nvidia-cublas-cu12"; \
+        # Step 4: CUDA runtime libs — entrypoint adds to LD_LIBRARY_PATH
+        # nvidia-cuda-runtime-cu12 provides libcudart.so (required by cuDNN + cuBLAS)
+        pip install --no-cache-dir "nvidia-cuda-runtime-cu12" "nvidia-cudnn-cu12>=9" "nvidia-cublas-cu12"; \
     fi
 
 # ── Pre-bake buffalo_l model (~600 MB, cached as image layer) ─────────────────

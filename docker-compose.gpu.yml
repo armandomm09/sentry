@@ -9,6 +9,11 @@ services:
         GPU: "1"
     environment:
       - FACE_SERVICE_PROVIDERS=TensorrtExecutionProvider,CUDAExecutionProvider,CPUExecutionProvider
+      # Prepend host CUDA 13 libs so ORT's CUDA EP finds libcublasLt.so.13 / libcudart.so.13
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib
+    volumes:
+      # Expose host CUDA 13.0 toolkit libs (libcublas.so.13, libcublasLt.so.13, libcudart.so.13)
+      - /usr/local/cuda-13.0/targets/sbsa-linux/lib:/usr/local/cuda/lib64:ro
     deploy:
       resources:
         reservations:
