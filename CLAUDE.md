@@ -162,6 +162,12 @@ npx expo start --ios
 
 Push tokens are registered with the backend (`POST /api/push/register`) with per-subscription preferences for known/unknown person notifications and per-camera filtering.
 
+**Running on a physical iPhone with a free Apple team:**
+```bash
+cd mobile && ./run-device.sh    # override team via APPLE_TEAM_ID=<id>
+```
+`expo run:ios` re-runs prebuild every time, and `expo-notifications` forces the Push Notifications (`aps-environment`) entitlement, which free Apple teams cannot sign. `run-device.sh` prebuilds, strips that entitlement (via `plugins/withoutPushEntitlement.js`), builds a signed `.app` with `xcodebuild` for the connected device, then installs it via `expo run:ios --binary` without re-prebuilding. Remote push won't work in this mode; delete the script and the plugin once a paid Apple Developer account is active.
+
 ## Testing
 
 **Backend:**

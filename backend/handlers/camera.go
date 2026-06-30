@@ -88,6 +88,7 @@ func (h *CameraHandler) Create(c *gin.Context) {
 		Name:                   req.Name,
 		Location:               req.Location,
 		RTSPURL:                req.RTSPURL,
+		SnapshotURL:            req.SnapshotURL,
 		AutoReconnect:          req.AutoReconnect,
 		FaceRecognitionEnabled: req.FaceRecognitionEnabled,
 		CreatedAt:              time.Now(),
@@ -131,6 +132,9 @@ func (h *CameraHandler) Update(c *gin.Context) {
 	}
 	if req.Location != nil {
 		cam.Location = *req.Location
+	}
+	if req.SnapshotURL != nil {
+		cam.SnapshotURL = *req.SnapshotURL
 	}
 	if req.RTSPURL != nil && *req.RTSPURL != cam.RTSPURL {
 		cam.RTSPURL = *req.RTSPURL

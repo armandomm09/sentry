@@ -2,6 +2,7 @@ import { Maximize2, MoreHorizontal, VideoOff } from 'lucide-react'
 import { useState } from 'react'
 import type { CameraWithStream } from '../../types/camera'
 import { StatusPill } from '../ui/StatusPill'
+import { CameraSnapshot } from './CameraSnapshot'
 
 interface Props {
   camera: CameraWithStream
@@ -43,6 +44,11 @@ export function CameraTile({ camera, onOpen }: Props) {
         className="relative overflow-hidden"
         style={{ aspectRatio: '16/9', background: feedBg }}
       >
+        {/* Snapshot preview (refreshes every 5s); falls back to gradient on error/empty */}
+        {!isOffline && camera.snapshot_url && (
+          <CameraSnapshot url={camera.snapshot_url} />
+        )}
+
         {/* Scan line */}
         {isLive && (
           <div className="absolute left-0 right-0 top-[32%] h-px bg-white/[0.06]" />

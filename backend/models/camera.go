@@ -7,6 +7,7 @@ type Camera struct {
 	Name                    string    `json:"name"`
 	Location                string    `json:"location"`
 	RTSPURL                 string    `json:"rtsp_url"`
+	SnapshotURL             string    `json:"snapshot_url"`
 	AutoReconnect           bool      `json:"auto_reconnect"`
 	FaceRecognitionEnabled  bool      `json:"face_recognition_enabled"`
 	CreatedAt               time.Time `json:"created_at"`
@@ -16,6 +17,7 @@ type CreateCameraRequest struct {
 	Name                    string `json:"name"          binding:"required"`
 	Location                string `json:"location"`
 	RTSPURL                 string `json:"rtsp_url"      binding:"required"`
+	SnapshotURL             string `json:"snapshot_url"`
 	AutoReconnect           bool   `json:"auto_reconnect"`
 	FaceRecognitionEnabled  bool   `json:"face_recognition_enabled"`
 }
@@ -24,6 +26,7 @@ type UpdateCameraRequest struct {
 	Name                    *string `json:"name"`
 	Location                *string `json:"location"`
 	RTSPURL                 *string `json:"rtsp_url"`
+	SnapshotURL             *string `json:"snapshot_url"`
 	AutoReconnect           *bool   `json:"auto_reconnect"`
 	FaceRecognitionEnabled  *bool   `json:"face_recognition_enabled"`
 }

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
 import { Button } from '../ui/Button'
+import { CameraSnapshot, deriveSnapshotUrl } from '../camera/CameraSnapshot'
 
 interface Props {
   open: boolean
@@ -50,15 +51,37 @@ function Field({ label, placeholder, value, onChange, hint, mono, error }: Field
 
 export function AddCameraModal({ open, onClose }: Props) {
   const qc = useQueryClient()
-  const [rtspUrl, setRtspUrl]     = useState('')
-  const [name, setName]           = useState('')
-  const [location, setLocation]   = useState('')
-  const [autoReconnect, setAR]    = useState(true)
-  const [errors, setErrors]       = useState<Record<string, string>>({})
+  const [rtspUrl, setRtspUrl]       = useState('')
+  const [snapshotUrl, setSnapshot]  = useState('')
+  const [snapshotTouched, setTouched] = useState(false)
+  const [name, setName]             = useState('')
+  const [location, setLocation]     = useState('')
+  const [autoReconnect, setAR]      = useState(true)
+  const [errors, setErrors]         = useState<Record<string, string>>({})
+
+  // Update RTSP and, unless the user has edited the preview field, re-derive the
+  // snapshot URL from it (Hikvision/ISAPI best guess).
+  const handleRtspChange = (v: string) => {
+    setRtspUrl(v)
+    if (!snapshotTouched) setSnapshot(deriveSnapshotUrl(v))
+  }
+
+  const handleSnapshotChange = (v: string) => {
+    setTouched(true)
+    setSnapshot(v)
+  }
+
+  const previewable = /^https?:\/\//i.test(snapshotUrl.trim())
 
   const mutation = useMutation({
     mutationFn: () =>
-      api.cameras.create({ name, location, rtsp_url: rtspUrl, auto_reconnect: autoReconnect }),
+      api.cameras.create({
+        name,
+        location,
+        rtsp_url: rtspUrl,
+        snapshot_url: snapshotUrl.trim() || undefined,
+        auto_reconnect: autoReconnect,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cameras'] })
       handleClose()
@@ -82,7 +105,8 @@ export function AddCameraModal({ open, onClose }: Props) {
   }
 
   const handleClose = () => {
-    setRtspUrl(''); setName(''); setLocation(''); setAR(true); setErrors({})
+    setRtspUrl(''); setSnapshot(''); setTouched(false)
+    setName(''); setLocation(''); setAR(true); setErrors({})
     onClose()
   }
 
@@ -123,11 +147,32 @@ export function AddCameraModal({ open, onClose }: Props) {
             label="Stream URL"
             placeholder="rtsp://admin@192.168.1.42/live"
             value={rtspUrl}
-            onChange={setRtspUrl}
+            onChange={handleRtspChange}
             mono
             hint="Accepts rtsp:// for IP cameras or ws:// for WebSocket sources (e.g. webcam test server)."
             error={errors.rtspUrl}
           />
+
+          <Field
+            label="Preview URL"
+            placeholder="http://admin:pass@192.168.1.42/ISAPI/Streaming/channels/101/picture"
+            value={snapshotUrl}
+            onChange={handleSnapshotChange}
+            mono
+            hint="HTTP snapshot endpoint, auto-filled from the stream URL. Used for the still preview; edit if your camera differs."
+          />
+
+          {previewable && (
+            <div
+              className="relative w-full overflow-hidden rounded-r1 border border-ink-border bg-ink-dark"
+              style={{ aspectRatio: '16/9' }}
+            >
+              <CameraSnapshot url={snapshotUrl.trim()} />
+              <div className="absolute bottom-1.5 left-1.5 font-mono text-[10px] text-white/75 bg-black/55 backdrop-blur-sm px-1.5 py-0.5 rounded-r1">
+                live preview
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <Field
