@@ -34,7 +34,8 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-notifications"
+      "expo-notifications",
+      "./plugins/withoutPushEntitlement.js"
     ],
     "extra": {
       "eas": {
