@@ -29,8 +29,6 @@ services:
       dockerfile: docker/face-service/Dockerfile
       args:
         GPU: "0"
-    ports:
-      - "8090:8090"
     volumes:
       - ./face-service/data:/app/data
     environment:
