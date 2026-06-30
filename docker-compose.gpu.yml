@@ -1,0 +1,18 @@
+# docker-compose.gpu.yml  — GPU overlay for face-service
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+# Or:    ./start.sh --gpu
+
+services:
+  face-service:
+    build:
+      args:
+        GPU: "1"
+    environment:
+      - FACE_SERVICE_PROVIDERS=TensorrtExecutionProvider,CUDAExecutionProvider,CPUExecutionProvider
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

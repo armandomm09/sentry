@@ -62,7 +62,7 @@ export function HLSPlayer({ src, className = '', playbackTimeRef }: Props) {
       // Formula: content at stream-pos V was live at wallTime + (V - streamPos).
       // This works without EXT-X-PROGRAM-DATE-TIME as a reliable fallback.
       let liveEdge = { streamPos: 0, wallTime: 0 }
-      hls.on(Hls.Events.LEVEL_DETAILS_LOADED, (_e, data) => {
+      hls.on(Hls.Events.LEVEL_LOADED, (_e, data: any) => {
         if (data.details.live) {
           liveEdge = { streamPos: data.details.edge, wallTime: Date.now() / 1000 }
         }

@@ -1,0 +1,15 @@
+# .dockerignore
+backend/data/
+face-service/data/
+face-service/.venv/
+frontend/node_modules/
+frontend/dist/
+mobile/
+**/.git
+**/__pycache__
+**/.pytest_cache
+**/tmp
+.env
+*.md
+docs/
+tests/

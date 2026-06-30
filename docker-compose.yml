@@ -1,0 +1,56 @@
+# docker-compose.yml  — production base, CPU face-service
+# To enable GPU: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+# Or use ./start.sh (auto-detects GPU)
+
+name: sentry
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/data:/app/data
+      - hls_streams:/tmp/sentry/streams
+    environment:
+      - PORT=8080
+      - SENTRY_DATA_DIR=/app/data
+      - FACE_SERVICE_URL=http://face-service:8090
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - face-service
+    restart: unless-stopped
+
+  face-service:
+    build:
+      context: .
+      dockerfile: docker/face-service/Dockerfile
+      args:
+        GPU: "0"
+    volumes:
+      - ./face-service/data:/app/data
+    environment:
+      - FACE_SERVICE_HOST=0.0.0.0
+      - FACE_SERVICE_PORT=8090
+      - FACE_SERVICE_DATA_DIR=/app/data
+      - FACE_SERVICE_RELAY_URL=ws://backend:8080
+      - FACE_SERVICE_PROVIDERS=CPUExecutionProvider
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    ports:
+      - "5173:80"
+    volumes:
+      - hls_streams:/hls:ro
+    depends_on:
+      - backend
+      - face-service
+    restart: unless-stopped
+
+volumes:
+  hls_streams:
