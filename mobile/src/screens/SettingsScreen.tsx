@@ -110,7 +110,7 @@ export default function SettingsScreen(): React.JSX.Element {
           setNotifyKnown(sub.notify_known)
           setNotifyUnknown(sub.notify_unknown)
           const toggles: Record<string, boolean> = {}
-          sub.camera_ids.forEach(id => { toggles[id] = true })
+          ;(sub.camera_ids ?? []).forEach(id => { toggles[id] = true })
           setCameraToggles(prev => ({ ...prev, ...toggles }))
         } else {
           // Server has no subscription; clear the stale key
@@ -157,6 +157,7 @@ export default function SettingsScreen(): React.JSX.Element {
         Constants.expoConfig?.extra?.eas?.projectId ?? 'your-eas-project-id'
       const tokenData = await Notifications.getExpoPushTokenAsync({ projectId })
       const expoPushToken = tokenData.data
+      console.log('[push] EXPO PUSH TOKEN:', expoPushToken) // TEMP: remove after push debugging
 
       const cameraIds = cameras.map(c => c.id)
       await registerPush(baseUrl!, token!, {

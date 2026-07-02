@@ -97,7 +97,7 @@ export async function registerPush(
   token: string,
   payload: PushRegistration,
 ): Promise<void> {
-  const res = await fetch(`${baseUrl}/api/push/subscribe`, {
+  const res = await fetch(`${baseUrl}/api/push/register`, {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify(payload),

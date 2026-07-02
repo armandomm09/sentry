@@ -85,8 +85,8 @@ Steps:
    - platforms: ["ios","android"]
    - icon: "./assets/icon.png", splash configured
    - plugins: ["expo-secure-store", "expo-notifications"]
-   - android: { package: "com.sentry.home" }
-   - ios: { bundleIdentifier: "com.sentry.home" }
+   - android: { package: "com.dim.sentry" }
+   - ios: { bundleIdentifier: "com.dim.sentry" }
 10. Write eas.json with development, preview, production profiles
 11. git add + commit
 
