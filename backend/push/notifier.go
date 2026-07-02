@@ -13,7 +13,7 @@ import (
 	"github.com/dim/sentry/backend/db"
 )
 
-const expoURL = "https://exp.host/push/send"
+const expoURL = "https://exp.host/--/api/v2/push/send"
 
 type Message struct {
 	CameraID   string
