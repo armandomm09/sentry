@@ -21,12 +21,12 @@ type User struct {
 }
 
 type PushSubscription struct {
-	UserID        string
-	ExpoPushToken string
-	CameraIDs     []string
-	NotifyKnown   bool
-	NotifyUnknown bool
-	UpdatedAt     string
+	UserID        string   `json:"user_id"`
+	ExpoPushToken string   `json:"expo_push_token"`
+	CameraIDs     []string `json:"camera_ids"`
+	NotifyKnown   bool     `json:"notify_known"`
+	NotifyUnknown bool     `json:"notify_unknown"`
+	UpdatedAt     string   `json:"updated_at"`
 }
 
 const schema = `

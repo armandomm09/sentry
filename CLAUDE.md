@@ -162,11 +162,19 @@ npx expo start --ios
 
 Push tokens are registered with the backend (`POST /api/push/register`) with per-subscription preferences for known/unknown person notifications and per-camera filtering.
 
-**Running on a physical iPhone with a free Apple team:**
+**Running on a physical iPhone (paid Apple Developer account + EAS):**
+
+The app uses Continuous Native Generation — `ios/` and `android/` are gitignored and regenerated from `app.json` by EAS on every build. Expo Go cannot run this app (SDK 56 + native modules), so use an EAS **development build**:
+
 ```bash
-cd mobile && ./run-device.sh    # override team via APPLE_TEAM_ID=<id>
+npx eas-cli login                                    # once
+npx eas-cli device:create                            # register the iPhone (once per device)
+npx eas-cli build --profile development --platform ios
+# install the resulting build on the phone, then:
+cd mobile && npx expo start --dev-client             # hot reload on device
 ```
-`expo run:ios` re-runs prebuild every time, and `expo-notifications` forces the Push Notifications (`aps-environment`) entitlement, which free Apple teams cannot sign. `run-device.sh` prebuilds, strips that entitlement (via `plugins/withoutPushEntitlement.js`), builds a signed `.app` with `xcodebuild` for the connected device, then installs it via `expo run:ios --binary` without re-prebuilding. Remote push won't work in this mode; delete the script and the plugin once a paid Apple Developer account is active.
+
+Build profiles live in `mobile/eas.json` (`development` = dev client / internal, `preview` = internal, `production` = store). TestFlight: `eas build --profile production --platform ios` then `eas submit --profile production --platform ios` (requires an app record in App Store Connect for bundle id `com.dim.sentry`). Remote push requires an APNs key registered with EAS credentials.
 
 ## Testing
 
@@ -174,6 +182,7 @@ cd mobile && ./run-device.sh    # override team via APPLE_TEAM_ID=<id>
 ```bash
 cd backend && go test ./...
 ```
+Note: there are currently no `*_test.go` files, so this is a no-op until tests are added.
 
 **Face service — manual end-to-end (webcam, no Go backend needed):**
 ```bash

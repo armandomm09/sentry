@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -162,8 +163,40 @@ func (n *Notifier) doSend(batch []expoMessage) error {
 		return err
 	}
 	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("expo returned %d", resp.StatusCode)
+		return fmt.Errorf("expo returned %d: %s", resp.StatusCode, string(body))
 	}
+
+	// Expo returns HTTP 200 even when individual messages fail. Parse the
+	// per-message "tickets" so delivery errors (bad token, InvalidCredentials,
+	// DeviceNotRegistered, ...) are not silently swallowed.
+	var ticketResp struct {
+		Data []struct {
+			Status  string `json:"status"`
+			ID      string `json:"id"`
+			Message string `json:"message"`
+			Details struct {
+				Error string `json:"error"`
+			} `json:"details"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &ticketResp); err != nil {
+		log.Printf("[push] could not parse expo response: %v (body: %s)", err, string(body))
+		return nil
+	}
+	ok := 0
+	for i, t := range ticketResp.Data {
+		if t.Status == "ok" {
+			ok++
+			continue
+		}
+		to := ""
+		if i < len(batch) {
+			to = batch[i].To
+		}
+		log.Printf("[push] expo rejected message to %s: %s (error=%s)", to, t.Message, t.Details.Error)
+	}
+	log.Printf("[push] expo accepted %d/%d messages", ok, len(ticketResp.Data))
 	return nil
 }
