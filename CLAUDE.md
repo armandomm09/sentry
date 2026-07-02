@@ -152,9 +152,10 @@ cd mobile
 npx expo start          # dev server
 npx expo start --android
 npx expo start --ios
+npx tsc --noEmit        # typecheck (no lint/test scripts exist for mobile)
 ```
 
-**Important:** This project uses Expo SDK 56. Read versioned docs at https://docs.expo.dev/versions/v56.0.0/ before modifying Expo-specific code.
+**Important:** This project uses Expo SDK 56. Read versioned docs at https://docs.expo.dev/versions/v56.0.0/ before modifying Expo-specific code. `mobile/AGENTS.md` repeats this warning — Expo APIs change between versions, so always consult the v56 docs rather than relying on prior knowledge.
 
 **Stack:** Expo 56, React Native 0.85.3, React Navigation (bottom tabs + native stack), `expo-notifications` for push, `expo-secure-store` for token persistence.
 

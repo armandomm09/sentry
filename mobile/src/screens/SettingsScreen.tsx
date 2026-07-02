@@ -157,7 +157,6 @@ export default function SettingsScreen(): React.JSX.Element {
         Constants.expoConfig?.extra?.eas?.projectId ?? 'your-eas-project-id'
       const tokenData = await Notifications.getExpoPushTokenAsync({ projectId })
       const expoPushToken = tokenData.data
-      console.log('[push] EXPO PUSH TOKEN:', expoPushToken) // TEMP: remove after push debugging
 
       const cameraIds = cameras.map(c => c.id)
       await registerPush(baseUrl!, token!, {
