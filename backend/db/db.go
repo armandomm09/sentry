@@ -56,6 +56,9 @@ func Open(path string) (*DB, error) {
 	if _, err := q.Exec(schema); err != nil {
 		return nil, fmt.Errorf("db migrate: %w", err)
 	}
+	if _, err := q.Exec(eventsSchema); err != nil {
+		return nil, fmt.Errorf("db migrate events: %w", err)
+	}
 	return &DB{q: q}, nil
 }
 
