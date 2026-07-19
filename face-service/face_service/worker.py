@@ -31,7 +31,7 @@ import numpy as np
 from .config import Config
 from .db import Database
 from .recognizer import MatchIndex, Recognizer
-from .tracker import FaceTracker
+from .tracker import KNOWN, FaceTracker, IdentityParams
 
 
 log = logging.getLogger(__name__)
@@ -43,6 +43,36 @@ def _load_index(db_path: str, threshold: float) -> MatchIndex:
     idx.rebuild(list(db.all_embeddings()))
     db.close()
     return idx
+
+
+def build_detections(tracker, index, frame_w: int, frame_h: int) -> list[dict]:
+    """Vote + serialize confirmed tracks for one processed frame."""
+    detections: list[dict] = []
+    for track in tracker.confirmed_tracks():
+        if track.current_embedding is not None:
+            track.push_vote(index.match(track.current_embedding))
+
+        # Only emit detection for tracks visible in this frame (not lost)
+        if track.lost_count > 0:
+            continue
+
+        ident = track.identity if track.state == KNOWN else None
+        x1, y1, x2, y2 = track.bbox
+        detections.append({
+            "track_id": track.id,
+            "bbox": [
+                max(0.0, x1 / frame_w),
+                max(0.0, y1 / frame_h),
+                min(1.0, x2 / frame_w),
+                min(1.0, y2 / frame_h),
+            ],
+            "score": round(track.det_score, 3),
+            "state": track.state,
+            "person_id": ident.person_id if ident else None,
+            "name": ident.name if ident else None,
+            "similarity": round(ident.similarity, 3) if ident else None,
+        })
+    return detections
 
 
 def run_worker(
@@ -90,9 +120,17 @@ async def _run_async(
         min_iou=config.track_min_iou,
         min_hits=config.track_min_hits,
         max_lost=config.track_max_lost,
-        vote_window=config.track_vote_window,
+        params=IdentityParams(
+            acquire_threshold=config.acquire_threshold,
+            keep_threshold=config.keep_threshold,
+            acquire_votes=config.acquire_votes,
+            min_vote_face_px=config.min_vote_face_px,
+            min_vote_det_score=config.min_vote_det_score,
+            unknown_min_age_s=config.unknown_min_age_s,
+            unknown_min_votes=config.unknown_min_votes,
+        ),
     )
-    index_ref = [_load_index(str(config.db_path), config.match_threshold)]
+    index_ref = [_load_index(str(config.db_path), config.keep_threshold)]
     local_version = int(index_version.value)
     log.info("index loaded: %d prototypes (version=%d)", index_ref[0].size, local_version)
 
@@ -193,7 +231,7 @@ async def _process_frames(
         if cur_ver != local_version:
             log.info("reloading match index: %d -> %d", local_version, cur_ver)
             try:
-                index_ref[0] = _load_index(str(config.db_path), config.match_threshold)
+                index_ref[0] = _load_index(str(config.db_path), config.keep_threshold)
                 local_version = cur_ver
             except Exception as exc:
                 log.warning("index reload failed: %s", exc)
@@ -211,33 +249,7 @@ async def _process_frames(
             continue
 
         tracker.update(faces)
-
-        detections = []
-        index = index_ref[0]
-        for track in tracker.confirmed_tracks():
-            if track.current_embedding is not None:
-                match_result = index.match(track.current_embedding)
-                track.push_vote(match_result)
-
-            # Only emit detection for tracks visible in this frame (not lost)
-            if track.lost_count > 0:
-                continue
-
-            voted = track.voted_identity()
-            x1, y1, x2, y2 = track.bbox
-            detections.append({
-                "track_id": track.id,
-                "bbox": [
-                    max(0.0, x1 / frame_w),
-                    max(0.0, y1 / frame_h),
-                    min(1.0, x2 / frame_w),
-                    min(1.0, y2 / frame_h),
-                ],
-                "score": round(track.det_score, 3),
-                "person_id": voted.person_id if voted else None,
-                "name": voted.name if voted else None,
-                "similarity": round(voted.similarity, 3) if voted else None,
-            })
+        detections = build_detections(tracker, index_ref[0], frame_w, frame_h)
 
         # Throttle empty-frame events so we don't spam the WS at idle FPS.
         if not detections and now - last_emit_empty < 0.5:
