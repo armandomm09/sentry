@@ -100,11 +100,11 @@ go vet ./...
 **Default credentials on first run:** `admin` / `sentry123`
 
 **Architecture:**
-- `main.go` wires all components. Routes under `/api` require JWT auth except `/api/auth/login` and the `/api/cameras/:id/frames` WebSocket (consumed by face-service).
+- `main.go` wires all components. Routes under `/api` require JWT auth except `/api/auth/login` and the `/api/cameras/:id/frames` WebSocket (consumed by face-service). User management under `/api/users` additionally requires the admin role.
 - `stream/` — each camera gets a `Relay` that FFmpeg-transcodes RTSP to HLS segments written to `/tmp/sentry/streams/<camera-id>/`. Frames are also fanned out to subscribers via channels for the face-service to consume.
-- `face/` — `client.go` calls the Python face-service REST API; `proxy.go` reverse-proxies `/api/persons/*` to it and `/face/cameras/{id}/ws` (detection WebSocket) to the face-service's `/cameras/{id}/ws`. `SyncFromStore` + `RunSyncLoop` keep face-service's camera list in sync with `cameras.json`.
+- `face/` — `client.go` calls the Python face-service REST API; `proxy.go` reverse-proxies `/api/persons/*` and `/api/augmentation/*` to it and `/face/cameras/{id}/ws` (detection WebSocket) to the face-service's `/cameras/{id}/ws`. `SyncFromStore` + `RunSyncLoop` keep face-service's camera list in sync with `cameras.json`.
 - `push/` — `listener.go` subscribes to the face-service detection WebSocket per camera; `notifier.go` batches and sends via Expo Push API.
-- `storage/json_store.go` — camera config persisted to `data/cameras.json`.
+- `storage/json_store.go` — camera config persisted to `data/cameras.json`. Cameras have an optional `snapshot_url` (HTTP JPEG endpoint) used by the frontend's per-camera snapshot preview (`CameraSnapshot.tsx`) without starting a full HLS stream.
 - `db/db.go` — SQLite (`modernc.org/sqlite`) for users and push subscriptions.
 - HLS segments are served statically at `/hls` → `/tmp/sentry/streams/`.
 
@@ -175,7 +175,7 @@ npx eas-cli build --profile development --platform ios
 cd mobile && npx expo start --dev-client             # hot reload on device
 ```
 
-Build profiles live in `mobile/eas.json` (`development` = dev client / internal, `preview` = internal, `production` = store). TestFlight: `eas build --profile production --platform ios` then `eas submit --profile production --platform ios` (requires an app record in App Store Connect for bundle id `com.dim.sentry`). Remote push requires an APNs key registered with EAS credentials.
+Build profiles live in `mobile/eas.json` (`development` = dev client / internal, `preview` = internal, `production` = store). App versioning uses `appVersionSource: remote` — EAS auto-increments the iOS build number on production builds, so don't bump it in `app.json`. TestFlight: `eas build --profile production --platform ios` then `eas submit --profile production --platform ios` (requires an app record in App Store Connect for bundle id `com.dim.sentry`). Remote push requires an APNs key registered with EAS credentials.
 
 ## Testing
 
@@ -192,6 +192,14 @@ Note: there are currently no `*_test.go` files, so this is a no-op until tests a
 # Press q or Esc to exit
 ```
 Use this to isolate whether a recognition failure is in the face-service or in the RTSP/FFmpeg/HLS pipeline. `tests/ci/` is reserved for future headless tests.
+
+**Fake camera sources for local dev (no real camera needed):**
+```bash
+python3 scripts/webcam_rtsp.py     # webcam → RTSP at rtsp://localhost:8554/<path> (auto-downloads mediamtx)
+./face-service/.venv/bin/python scripts/webcam_ws.py   # webcam → WebSocket JPEG frames at ws://localhost:8765
+./face-service/.venv/bin/python scripts/test_ws.py <ws-url>  # verify any frame WebSocket is sending
+```
+Add the resulting URL as a camera in Sentry to exercise the full pipeline.
 
 ## Data Flow: Detection → Push Notification
 
