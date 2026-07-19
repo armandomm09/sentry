@@ -1,17 +1,47 @@
-"""Lightweight IoU-based face tracker with per-track majority-vote identity cache.
+"""Lightweight IoU-based face tracker with a sticky-identity state machine.
+
+Identity lifecycle per track:
+  pending -> known    after >= acquire_votes quality votes for one person at
+                      similarity >= acquire_threshold
+  pending -> unknown  once the track is older than unknown_min_age_s with at
+                      least unknown_min_votes quality votes and nothing acquired
+  unknown -> known    same rule as pending -> known (person came closer)
+  known   -> known(Q) only with sustained acquire-level evidence for Q
+  known   -> unknown  never
+
+A vote is "quality" only when the face is large and confidently detected;
+low-quality frames keep the track alive but cannot influence identity. Matches
+at keep_threshold (< acquire_threshold) refresh an already-acquired identity,
+giving the acquire/keep hysteresis that stops known<->unknown flapping.
 
 No external dependencies beyond numpy. Uses greedy IoU association (sufficient
 for the low track counts typical of a home camera feed).
 """
 from __future__ import annotations
 
-from collections import deque
-from typing import TYPE_CHECKING
+import time
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
 if TYPE_CHECKING:
     from .recognizer import DetectedFace, Match
+
+PENDING = "pending"
+KNOWN = "known"
+UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class IdentityParams:
+    acquire_threshold: float
+    keep_threshold: float
+    acquire_votes: int
+    min_vote_face_px: int
+    min_vote_det_score: float
+    unknown_min_age_s: float
+    unknown_min_votes: int
 
 
 def _iou(a: tuple, b: tuple) -> float:
@@ -60,55 +90,104 @@ def _greedy_match(
 
 
 class FaceTrack:
-    """A single tracked face with a rolling recognition vote window."""
+    """A single tracked face with a sticky-identity state machine."""
 
-    def __init__(self, track_id: int, bbox: tuple, det_score: float, embedding, vote_window: int):
+    def __init__(
+        self,
+        track_id: int,
+        bbox: tuple,
+        det_score: float,
+        embedding,
+        params: IdentityParams,
+        created_ts: float,
+    ):
         self.id = track_id
         self.bbox = bbox
         self.det_score = det_score
         self.hits = 1
         self.lost_count = 0
         self.current_embedding = embedding
-        self._votes: deque["Match | None"] = deque(maxlen=vote_window)
+        self.created_ts = created_ts
+        self.state = PENDING
+        self.identity: "Match | None" = None
+        self.quality_votes = 0
+        self._params = params
+        self._acquire_counts: dict[str, int] = {}  # pending/unknown: pid -> votes
+        self._switch_counts: dict[str, int] = {}   # known: other pid -> votes
 
-    def push_vote(self, result: "Match | None") -> None:
-        self._votes.append(result)
+    def _is_quality_frame(self) -> bool:
+        face_h = self.bbox[3] - self.bbox[1]
+        return (
+            face_h >= self._params.min_vote_face_px
+            and self.det_score >= self._params.min_vote_det_score
+        )
 
-    def voted_identity(self) -> "Match | None":
-        """Return the Match that won majority (>50%) of the vote window, or None."""
-        if not self._votes:
-            return None
+    def push_vote(self, match: "Match | None") -> None:
+        """Feed one recognition result. Ignored unless the current frame is quality."""
+        if not self._is_quality_frame():
+            return
+        self.quality_votes += 1
+        p = self._params
 
-        counts: dict[str | None, int] = {}
-        best_match_by_pid: dict[str, "Match"] = {}
+        if self.state == KNOWN:
+            assert self.identity is not None
+            if match is not None and match.person_id == self.identity.person_id:
+                if match.similarity >= p.keep_threshold:
+                    if match.similarity > self.identity.similarity:
+                        self.identity = match
+                    self._switch_counts.clear()
+            elif match is not None and match.similarity >= p.acquire_threshold:
+                n = self._switch_counts.get(match.person_id, 0) + 1
+                self._switch_counts[match.person_id] = n
+                if n >= p.acquire_votes:
+                    self.identity = match
+                    self._switch_counts.clear()
+            # match is None or a weak other-person match: identity is sticky.
+            return
 
-        for v in self._votes:
-            pid = v.person_id if v is not None else None
-            counts[pid] = counts.get(pid, 0) + 1
-            if v is not None and pid not in best_match_by_pid:
-                best_match_by_pid[pid] = v
+        # PENDING or UNKNOWN: accumulate acquire-level evidence.
+        if match is not None and match.similarity >= p.acquire_threshold:
+            n = self._acquire_counts.get(match.person_id, 0) + 1
+            self._acquire_counts[match.person_id] = n
+            if n >= p.acquire_votes:
+                self.state = KNOWN
+                self.identity = match
+                self._acquire_counts.clear()
 
-        best_pid = max(counts, key=counts.__getitem__)
-        if best_pid is None:
-            return None
-        if counts[best_pid] / len(self._votes) <= 0.5:
-            return None
-        return best_match_by_pid.get(best_pid)
+    def resolve_unknown(self, now: float) -> None:
+        """Promote pending -> unknown once the track has proven itself unmatched."""
+        if self.state != PENDING:
+            return
+        p = self._params
+        if (
+            now - self.created_ts >= p.unknown_min_age_s
+            and self.quality_votes >= p.unknown_min_votes
+        ):
+            self.state = UNKNOWN
 
 
 class FaceTracker:
     """Manages active face tracks across frames using greedy IoU association."""
 
-    def __init__(self, min_iou: float, min_hits: int, max_lost: int, vote_window: int):
+    def __init__(
+        self,
+        min_iou: float,
+        min_hits: int,
+        max_lost: int,
+        params: IdentityParams,
+        now_fn: Callable[[], float] = time.monotonic,
+    ):
         self._min_iou = min_iou
         self._min_hits = min_hits
         self._max_lost = max_lost
-        self._vote_window = vote_window
+        self._params = params
+        self._now = now_fn
         self._tracks: list[FaceTrack] = []
         self._next_id = 0
 
     def update(self, faces: list["DetectedFace"]) -> None:
         """Associate detections with existing tracks and advance all track states."""
+        now = self._now()
         det_bboxes = [f.bbox for f in faces]
         track_bboxes = [t.bbox for t in self._tracks]
 
@@ -139,13 +218,16 @@ class FaceTracker:
                     bbox=faces[di].bbox,
                     det_score=faces[di].score,
                     embedding=faces[di].embedding,
-                    vote_window=self._vote_window,
+                    params=self._params,
+                    created_ts=now,
                 )
             )
             self._next_id += 1
 
-        # Remove dead tracks
+        # Remove dead tracks, then resolve pending -> unknown on survivors
         self._tracks = [t for t in self._tracks if t.lost_count <= self._max_lost]
+        for t in self._tracks:
+            t.resolve_unknown(now)
 
     def confirmed_tracks(self) -> list[FaceTrack]:
         """Return tracks that have been seen for at least min_hits consecutive frames."""
