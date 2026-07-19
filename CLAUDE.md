@@ -100,24 +100,24 @@ go vet ./...
 **Default credentials on first run:** `admin` / `sentry123`
 
 **Architecture:**
-- `main.go` wires all components. Routes under `/api` require JWT auth except `/api/auth/login` and the `/api/cameras/:id/frames` WebSocket (consumed by face-service).
+- `main.go` wires all components. Routes under `/api` require JWT auth except `/api/auth/login` and the `/api/cameras/:id/frames` WebSocket (consumed by face-service). User management under `/api/users` additionally requires the admin role.
 - `stream/` — each camera gets a `Relay` that FFmpeg-transcodes RTSP to HLS segments written to `/tmp/sentry/streams/<camera-id>/`. Frames are also fanned out to subscribers via channels for the face-service to consume.
-- `face/` — `client.go` calls the Python face-service REST API; `proxy.go` reverse-proxies `/api/persons/*` to it and `/face/cameras/{id}/ws` (detection WebSocket) to the face-service's `/cameras/{id}/ws`. `SyncFromStore` + `RunSyncLoop` keep face-service's camera list in sync with `cameras.json`.
+- `face/` — `client.go` calls the Python face-service REST API; `proxy.go` reverse-proxies `/api/persons/*` and `/api/augmentation/*` to it and `/face/cameras/{id}/ws` (detection WebSocket) to the face-service's `/cameras/{id}/ws`. `SyncFromStore` + `RunSyncLoop` keep face-service's camera list in sync with `cameras.json`.
 - `push/` — `listener.go` subscribes to the face-service detection WebSocket per camera; `notifier.go` batches and sends via Expo Push API.
-- `storage/json_store.go` — camera config persisted to `data/cameras.json`.
+- `storage/json_store.go` — camera config persisted to `data/cameras.json`. Cameras have an optional `snapshot_url` (HTTP JPEG endpoint) used by the frontend's per-camera snapshot preview (`CameraSnapshot.tsx`) without starting a full HLS stream.
 - `db/db.go` — SQLite (`modernc.org/sqlite`) for users and push subscriptions.
 - HLS segments are served statically at `/hls` → `/tmp/sentry/streams/`.
 
 ## Face Service (Python)
 
-**Key env vars:** `FACE_SERVICE_HOST`, `FACE_SERVICE_PORT` (default `8090`), `FACE_SERVICE_DATA_DIR`, `FACE_SERVICE_MODEL` (default `buffalo_l`), `FACE_SERVICE_MATCH_THRESHOLD` (default `0.42`), `FACE_SERVICE_PROVIDERS` (comma-separated ORT providers), `FACE_SERVICE_RELAY_URL` (default `ws://127.0.0.1:8080`).
+**Key env vars:** `FACE_SERVICE_HOST`, `FACE_SERVICE_PORT` (default `8090`), `FACE_SERVICE_DATA_DIR`, `FACE_SERVICE_MODEL` (default `buffalo_l`), `FACE_SERVICE_MATCH_THRESHOLD` (default `0.42`, enrollment only), `FACE_SERVICE_ACQUIRE_THRESHOLD` (default `0.45`), `FACE_SERVICE_KEEP_THRESHOLD` (default `0.35`), `FACE_SERVICE_PROVIDERS` (comma-separated ORT providers), `FACE_SERVICE_RELAY_URL` (default `ws://127.0.0.1:8080`).
 
 **Architecture:**
 - `server.py` — aiohttp app factory. Routes for persons CRUD, photo upload (multipart), and a per-camera detection WebSocket at `/cameras/{id}/ws`.
 - `supervisor.py` — manages per-camera worker goroutines. Workers run at `idle_fps` (2fps) normally and bump to `active_fps` (8fps) when a WebSocket viewer is attached.
 - `worker.py` — connects to Go's frame WebSocket, decodes JPEG frames, calls `recognizer.py`, runs the tracker, and publishes detection events to subscribers.
 - `recognizer.py` — InsightFace (`buffalo_l` model). Maintains an in-memory embedding index; `bump_index_version()` triggers a rebuild. Matcher uses cosine similarity on L2-normalized 512-d ArcFace embeddings.
-- `tracker.py` — IoU-based SORT tracker with per-track majority-vote identity cache. Smooths recognition over time and suppresses ghost detections from lost tracks.
+- `tracker.py` — IoU-based SORT tracker with a sticky-identity state machine (`pending → known | unknown`). Quality gating (face ≥ `FACE_SERVICE_MIN_VOTE_FACE_PX` px tall, det score ≥ `FACE_SERVICE_MIN_VOTE_DET_SCORE`) decides which frames may vote; identities acquire at `FACE_SERVICE_ACQUIRE_THRESHOLD` and are kept at `FACE_SERVICE_KEEP_THRESHOLD` (hysteresis); "unknown" requires `FACE_SERVICE_UNKNOWN_MIN_AGE_S` seconds and `FACE_SERVICE_UNKNOWN_MIN_VOTES` quality votes. A known track never reverts to unknown.
 - `augmentation.py` — generates embedding variants from a single enrollment photo (flips, rotations, brightness shifts) to improve robustness across multiple lighting conditions.
 - `persons.py` / `db.py` — person+photo store backed by SQLite at `data/face.db`.
 - GPU: OnnxRuntime provider order is TensorRT → CUDA → CoreML → CPU; the recognizer silently skips unsupported providers.
@@ -175,7 +175,7 @@ npx eas-cli build --profile development --platform ios
 cd mobile && npx expo start --dev-client             # hot reload on device
 ```
 
-Build profiles live in `mobile/eas.json` (`development` = dev client / internal, `preview` = internal, `production` = store). TestFlight: `eas build --profile production --platform ios` then `eas submit --profile production --platform ios` (requires an app record in App Store Connect for bundle id `com.dim.sentry`). Remote push requires an APNs key registered with EAS credentials.
+Build profiles live in `mobile/eas.json` (`development` = dev client / internal, `preview` = internal, `production` = store). App versioning uses `appVersionSource: remote` — EAS auto-increments the iOS build number on production builds, so don't bump it in `app.json`. TestFlight: `eas build --profile production --platform ios` then `eas submit --profile production --platform ios` (requires an app record in App Store Connect for bundle id `com.dim.sentry`). Remote push requires an APNs key registered with EAS credentials.
 
 ## Testing
 
@@ -192,6 +192,14 @@ Note: there are currently no `*_test.go` files, so this is a no-op until tests a
 # Press q or Esc to exit
 ```
 Use this to isolate whether a recognition failure is in the face-service or in the RTSP/FFmpeg/HLS pipeline. `tests/ci/` is reserved for future headless tests.
+
+**Fake camera sources for local dev (no real camera needed):**
+```bash
+python3 scripts/webcam_rtsp.py     # webcam → RTSP at rtsp://localhost:8554/<path> (auto-downloads mediamtx)
+./face-service/.venv/bin/python scripts/webcam_ws.py   # webcam → WebSocket JPEG frames at ws://localhost:8765
+./face-service/.venv/bin/python scripts/test_ws.py <ws-url>  # verify any frame WebSocket is sending
+```
+Add the resulting URL as a camera in Sentry to exercise the full pipeline.
 
 ## Data Flow: Detection → Push Notification
 

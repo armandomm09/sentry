@@ -44,7 +44,13 @@ class Config:
     track_min_iou: float
     track_min_hits: int
     track_max_lost: int
-    track_vote_window: int
+    acquire_threshold: float   # similarity to acquire a track identity
+    keep_threshold: float      # similarity to refresh an acquired identity
+    acquire_votes: int         # quality votes at acquire level to (re)assign identity
+    min_vote_face_px: int      # min bbox height (processing px) for a vote to count
+    min_vote_det_score: float  # min detector score for a vote to count
+    unknown_min_age_s: float   # track age before "unknown" may be declared
+    unknown_min_votes: int     # quality votes before "unknown" may be declared
 
     @staticmethod
     def from_env() -> "Config":
@@ -82,5 +88,11 @@ class Config:
             track_min_iou=_env_float("FACE_SERVICE_TRACK_MIN_IOU", 0.3),
             track_min_hits=_env_int("FACE_SERVICE_TRACK_MIN_HITS", 3),
             track_max_lost=_env_int("FACE_SERVICE_TRACK_MAX_LOST", 5),
-            track_vote_window=_env_int("FACE_SERVICE_TRACK_VOTE_WINDOW", 10),
+            acquire_threshold=_env_float("FACE_SERVICE_ACQUIRE_THRESHOLD", 0.45),
+            keep_threshold=_env_float("FACE_SERVICE_KEEP_THRESHOLD", 0.35),
+            acquire_votes=_env_int("FACE_SERVICE_ACQUIRE_VOTES", 3),
+            min_vote_face_px=_env_int("FACE_SERVICE_MIN_VOTE_FACE_PX", 48),
+            min_vote_det_score=_env_float("FACE_SERVICE_MIN_VOTE_DET_SCORE", 0.6),
+            unknown_min_age_s=_env_float("FACE_SERVICE_UNKNOWN_MIN_AGE_S", 3.0),
+            unknown_min_votes=_env_int("FACE_SERVICE_UNKNOWN_MIN_VOTES", 5),
         )
