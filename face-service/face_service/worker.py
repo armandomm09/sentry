@@ -30,6 +30,7 @@ import numpy as np
 
 from .config import Config
 from .db import Database
+from .lifecycle import LifecycleEmitter
 from .recognizer import MatchIndex, Recognizer
 from .tracker import KNOWN, FaceTracker, IdentityParams
 
@@ -130,6 +131,7 @@ async def _run_async(
             unknown_min_votes=config.unknown_min_votes,
         ),
     )
+    emitter = LifecycleEmitter(camera_id)
     index_ref = [_load_index(str(config.db_path), config.keep_threshold)]
     local_version = int(index_version.value)
     log.info("index loaded: %d prototypes (version=%d)", index_ref[0].size, local_version)
@@ -150,6 +152,7 @@ async def _run_async(
                         config=config,
                         rec=rec,
                         tracker=tracker,
+                        emitter=emitter,
                         index_ref=index_ref,
                         local_version=local_version,
                         fps_value=fps_value,
@@ -179,6 +182,7 @@ async def _process_frames(
     config: Config,
     rec: Recognizer,
     tracker: FaceTracker,
+    emitter: LifecycleEmitter,
     index_ref: list[MatchIndex],
     local_version: int,
     fps_value,
@@ -248,8 +252,13 @@ async def _process_frames(
             log.warning("detect failed: %s", exc)
             continue
 
-        tracker.update(faces)
+        removed = tracker.update(faces)
         detections = build_detections(tracker, index_ref[0], frame_w, frame_h)
+        for lifecycle_event in emitter.process(tracker, removed, frame, frame_ts):
+            try:
+                out_queue.put_nowait(json.dumps(lifecycle_event))
+            except Exception:
+                pass  # queue full — drop
 
         # Throttle empty-frame events so we don't spam the WS at idle FPS.
         if not detections and now - last_emit_empty < 0.5:

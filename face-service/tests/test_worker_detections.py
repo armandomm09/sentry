@@ -77,3 +77,29 @@ def test_lost_tracks_emit_nothing():
     tracker.update([_face(_unit(0))])
     tracker.update([])  # track lost this frame
     assert build_detections(tracker, index, 1000, 500) == []
+
+
+def test_process_tick_emits_lifecycle_and_detections():
+    """Simulates worker's per-frame sequence: update -> lifecycle -> detections."""
+    import json
+
+    import numpy as np
+    from face_service.lifecycle import LifecycleEmitter
+
+    tracker, index = _setup()
+    emitter = LifecycleEmitter("cam1", epoch=1)
+    frame = np.full((300, 300, 3), 128, dtype=np.uint8)
+    face = _face(_unit(0))
+
+    all_lifecycle = []
+    for i in range(3):
+        removed = tracker.update([face])
+        dets = build_detections(tracker, index, 1000, 500)
+        all_lifecycle += emitter.process(tracker, removed, frame, ts=100.0 + i)
+
+    confirmed = [e for e in all_lifecycle if e["type"] == "track_confirmed"]
+    assert len(confirmed) == 1
+    assert confirmed[0]["person_id"] == "pid_a"
+    for e in all_lifecycle:
+        json.dumps(e)  # everything the worker will queue must serialize
+    assert dets[0]["person_id"] == "pid_a"
