@@ -22,21 +22,36 @@ type detection struct {
 	Score    float64 `json:"score"`
 }
 
+// Sender is the notification outlet. *Notifier satisfies it.
+type Sender interface {
+	Send(Message)
+}
+
 type Listener struct {
 	faceBaseURL string // e.g. "http://127.0.0.1:8090"
-	notifier    *Notifier
+	notifier    Sender
 	store       CameraNameStore
 	mu          sync.Mutex
 	lastSent    map[string]time.Time // key: cameraID+":"+personKey
+	sink        func(raw []byte)
+	sinkMu      sync.RWMutex
 }
 
-func NewListener(faceBaseURL string, notifier *Notifier, store CameraNameStore) *Listener {
+func NewListener(faceBaseURL string, notifier Sender, store CameraNameStore) *Listener {
 	return &Listener{
 		faceBaseURL: faceBaseURL,
 		notifier:    notifier,
 		store:       store,
 		lastSent:    make(map[string]time.Time),
 	}
+}
+
+// SetLifecycleSink registers a consumer for track lifecycle messages
+// (track_confirmed / track_updated / track_ended). Call before WatchCamera.
+func (l *Listener) SetLifecycleSink(fn func(raw []byte)) {
+	l.sinkMu.Lock()
+	l.sink = fn
+	l.sinkMu.Unlock()
 }
 
 // WatchCamera starts a background goroutine that subscribes to the face-service
@@ -70,45 +85,65 @@ func (l *Listener) connectAndRead(wsURL, cameraID string) error {
 		if err != nil {
 			return err
 		}
-		var frame detectionFrame
-		if err := json.Unmarshal(msg, &frame); err != nil {
+		l.handleMessage(cameraID, msg)
+	}
+}
+
+// handleMessage routes one raw WS message: per-frame detections drive push
+// notifications (unchanged behavior); track lifecycle messages go to the sink.
+func (l *Listener) handleMessage(cameraID string, msg []byte) {
+	var frame detectionFrame
+	if err := json.Unmarshal(msg, &frame); err != nil {
+		return
+	}
+	switch frame.Type {
+	case "detections":
+		l.handleDetections(cameraID, &frame)
+	case "track_confirmed", "track_updated", "track_ended":
+		l.sinkMu.RLock()
+		sink := l.sink
+		l.sinkMu.RUnlock()
+		if sink != nil {
+			sink(msg)
+		}
+	}
+}
+
+func (l *Listener) handleDetections(cameraID string, frame *detectionFrame) {
+	if len(frame.Detections) == 0 {
+		return
+	}
+	cameraName := l.store.GetCameraName(cameraID)
+	for _, det := range frame.Detections {
+		isKnown := det.PersonID != ""
+		name := det.Name
+		if !isKnown {
+			name = ""
+		}
+
+		personKey := det.PersonID
+		if personKey == "" {
+			personKey = "unknown"
+		}
+		cooldownKey := cameraID + ":" + personKey
+
+		l.mu.Lock()
+		lastTime, exists := l.lastSent[cooldownKey]
+		shouldSend := !exists || time.Since(lastTime) >= 60*time.Second
+		if shouldSend {
+			l.lastSent[cooldownKey] = time.Now()
+		}
+		l.mu.Unlock()
+
+		if !shouldSend {
 			continue
 		}
-		if frame.Type != "detections" || len(frame.Detections) == 0 {
-			continue
-		}
-		cameraName := l.store.GetCameraName(cameraID)
-		for _, det := range frame.Detections {
-			isKnown := det.PersonID != ""
-			name := det.Name
-			if !isKnown {
-				name = ""
-			}
 
-			personKey := det.PersonID
-			if personKey == "" {
-				personKey = "unknown"
-			}
-			cooldownKey := cameraID + ":" + personKey
-
-			l.mu.Lock()
-			lastTime, exists := l.lastSent[cooldownKey]
-			shouldSend := !exists || time.Since(lastTime) >= 60*time.Second
-			if shouldSend {
-				l.lastSent[cooldownKey] = time.Now()
-			}
-			l.mu.Unlock()
-
-			if !shouldSend {
-				continue
-			}
-
-			l.notifier.Send(Message{
-				CameraID:   cameraID,
-				CameraName: cameraName,
-				PersonName: name,
-				IsKnown:    isKnown,
-			})
-		}
+		l.notifier.Send(Message{
+			CameraID:   cameraID,
+			CameraName: cameraName,
+			PersonName: name,
+			IsKnown:    isKnown,
+		})
 	}
 }
