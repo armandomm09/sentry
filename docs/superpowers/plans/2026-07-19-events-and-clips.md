@@ -1386,8 +1386,10 @@ func (c *ClipCutter) copyNew(cap *capture) {
 }
 
 func (c *ClipCutter) stitchAndFinish(eventID string, cap *capture) {
-	defer os.RemoveAll(cap.staging)
+	// Staging must be gone BEFORE done fires: done is the completion signal,
+	// and callers (and tests) may observe the filesystem the moment it runs.
 	if len(cap.order) == 0 {
+		os.RemoveAll(cap.staging)
 		cap.done("", fmt.Errorf("no segments captured for event %s", eventID))
 		return
 	}
@@ -1401,11 +1403,14 @@ func (c *ClipCutter) stitchAndFinish(eventID string, cap *capture) {
 	}
 	listFile := filepath.Join(cap.staging, "list.txt")
 	if err := os.WriteFile(listFile, []byte(b.String()), 0644); err != nil {
+		os.RemoveAll(cap.staging)
 		cap.done("", fmt.Errorf("clip list: %w", err))
 		return
 	}
 	outPath := filepath.Join(c.clipsDir, eventID+".mp4")
-	if err := c.Stitch(listFile, outPath); err != nil {
+	err := c.Stitch(listFile, outPath)
+	os.RemoveAll(cap.staging)
+	if err != nil {
 		cap.done("", err)
 		return
 	}
