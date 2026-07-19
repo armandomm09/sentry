@@ -110,14 +110,14 @@ go vet ./...
 
 ## Face Service (Python)
 
-**Key env vars:** `FACE_SERVICE_HOST`, `FACE_SERVICE_PORT` (default `8090`), `FACE_SERVICE_DATA_DIR`, `FACE_SERVICE_MODEL` (default `buffalo_l`), `FACE_SERVICE_MATCH_THRESHOLD` (default `0.42`), `FACE_SERVICE_PROVIDERS` (comma-separated ORT providers), `FACE_SERVICE_RELAY_URL` (default `ws://127.0.0.1:8080`).
+**Key env vars:** `FACE_SERVICE_HOST`, `FACE_SERVICE_PORT` (default `8090`), `FACE_SERVICE_DATA_DIR`, `FACE_SERVICE_MODEL` (default `buffalo_l`), `FACE_SERVICE_MATCH_THRESHOLD` (default `0.42`, enrollment only), `FACE_SERVICE_ACQUIRE_THRESHOLD` (default `0.45`), `FACE_SERVICE_KEEP_THRESHOLD` (default `0.35`), `FACE_SERVICE_PROVIDERS` (comma-separated ORT providers), `FACE_SERVICE_RELAY_URL` (default `ws://127.0.0.1:8080`).
 
 **Architecture:**
 - `server.py` — aiohttp app factory. Routes for persons CRUD, photo upload (multipart), and a per-camera detection WebSocket at `/cameras/{id}/ws`.
 - `supervisor.py` — manages per-camera worker goroutines. Workers run at `idle_fps` (2fps) normally and bump to `active_fps` (8fps) when a WebSocket viewer is attached.
 - `worker.py` — connects to Go's frame WebSocket, decodes JPEG frames, calls `recognizer.py`, runs the tracker, and publishes detection events to subscribers.
 - `recognizer.py` — InsightFace (`buffalo_l` model). Maintains an in-memory embedding index; `bump_index_version()` triggers a rebuild. Matcher uses cosine similarity on L2-normalized 512-d ArcFace embeddings.
-- `tracker.py` — IoU-based SORT tracker with per-track majority-vote identity cache. Smooths recognition over time and suppresses ghost detections from lost tracks.
+- `tracker.py` — IoU-based SORT tracker with a sticky-identity state machine (`pending → known | unknown`). Quality gating (face ≥ `FACE_SERVICE_MIN_VOTE_FACE_PX` px tall, det score ≥ `FACE_SERVICE_MIN_VOTE_DET_SCORE`) decides which frames may vote; identities acquire at `FACE_SERVICE_ACQUIRE_THRESHOLD` and are kept at `FACE_SERVICE_KEEP_THRESHOLD` (hysteresis); "unknown" requires `FACE_SERVICE_UNKNOWN_MIN_AGE_S` seconds and `FACE_SERVICE_UNKNOWN_MIN_VOTES` quality votes. A known track never reverts to unknown.
 - `augmentation.py` — generates embedding variants from a single enrollment photo (flips, rotations, brightness shifts) to improve robustness across multiple lighting conditions.
 - `persons.py` / `db.py` — person+photo store backed by SQLite at `data/face.db`.
 - GPU: OnnxRuntime provider order is TensorRT → CUDA → CoreML → CPU; the recognizer silently skips unsupported providers.
