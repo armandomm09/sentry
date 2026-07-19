@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"time"
 )
@@ -80,6 +81,61 @@ func (c *Client) DisableCamera(ctx context.Context, cameraID string) error {
 	if res.StatusCode >= 400 && res.StatusCode != http.StatusNotFound {
 		msg, _ := io.ReadAll(res.Body)
 		return fmt.Errorf("face-service disable: status %d: %s", res.StatusCode, msg)
+	}
+	return nil
+}
+
+// CreatePerson creates a person record in the face-service and returns its id.
+func (c *Client) CreatePerson(ctx context.Context, name string) (string, error) {
+	body, _ := json.Marshal(map[string]string{"name": name})
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/persons", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 400 {
+		msg, _ := io.ReadAll(res.Body)
+		return "", fmt.Errorf("face-service create person: status %d: %s", res.StatusCode, msg)
+	}
+	var person struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&person); err != nil || person.ID == "" {
+		return "", fmt.Errorf("face-service create person: bad response (%v)", err)
+	}
+	return person.ID, nil
+}
+
+// UploadPhoto enrolls a JPEG as a recognition photo for an existing person.
+// The face-service extracts the embedding, generates augmented variants, and
+// rebuilds the match index.
+func (c *Client) UploadPhoto(ctx context.Context, personID string, jpeg []byte, filename string) error {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	fw, err := w.CreateFormFile("photo", filename)
+	if err != nil {
+		return err
+	}
+	if _, err := fw.Write(jpeg); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/persons/"+personID+"/photos", &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	res, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode >= 400 {
+		msg, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("face-service upload photo: status %d: %s", res.StatusCode, msg)
 	}
 	return nil
 }
