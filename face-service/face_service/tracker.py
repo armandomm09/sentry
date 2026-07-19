@@ -115,7 +115,7 @@ class FaceTrack:
         self._acquire_counts: dict[str, int] = {}  # pending/unknown: pid -> votes
         self._switch_counts: dict[str, int] = {}   # known: other pid -> votes
 
-    def _is_quality_frame(self) -> bool:
+    def is_quality_frame(self) -> bool:
         face_h = self.bbox[3] - self.bbox[1]
         return (
             face_h >= self._params.min_vote_face_px
@@ -124,7 +124,7 @@ class FaceTrack:
 
     def push_vote(self, match: "Match | None") -> None:
         """Feed one recognition result. Ignored unless the current frame is quality."""
-        if not self._is_quality_frame():
+        if not self.is_quality_frame():
             return
         self.quality_votes += 1
         p = self._params
@@ -185,8 +185,12 @@ class FaceTracker:
         self._tracks: list[FaceTrack] = []
         self._next_id = 0
 
-    def update(self, faces: list["DetectedFace"]) -> None:
-        """Associate detections with existing tracks and advance all track states."""
+    def update(self, faces: list["DetectedFace"]) -> list["FaceTrack"]:
+        """Associate detections with existing tracks and advance all track states.
+
+        Returns the tracks removed this frame (exceeded max_lost), so callers
+        can emit end-of-track lifecycle events.
+        """
         now = self._now()
         det_bboxes = [f.bbox for f in faces]
         track_bboxes = [t.bbox for t in self._tracks]
@@ -225,9 +229,11 @@ class FaceTracker:
             self._next_id += 1
 
         # Remove dead tracks, then resolve pending -> unknown on survivors
+        dead = [t for t in self._tracks if t.lost_count > self._max_lost]
         self._tracks = [t for t in self._tracks if t.lost_count <= self._max_lost]
         for t in self._tracks:
             t.resolve_unknown(now)
+        return dead
 
     def confirmed_tracks(self) -> list[FaceTrack]:
         """Return tracks that have been seen for at least min_hits consecutive frames."""

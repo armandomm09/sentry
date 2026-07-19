@@ -224,3 +224,29 @@ def test_known_never_reverts_to_unknown():
     clock.t += 100.0
     t.update([face])
     assert track.state == KNOWN
+
+
+# --- removed-track reporting ----------------------------------------------------
+
+def test_update_returns_removed_tracks():
+    t = FaceTracker(min_iou=0.3, min_hits=1, max_lost=1, params=PARAMS, now_fn=FakeClock())
+    t.update([_face()])
+    track = t.confirmed_tracks()[0]
+    assert t.update([]) == []          # lost_count 1 == max_lost: still alive
+    removed = t.update([])             # lost_count 2 > max_lost: removed
+    assert removed == [track]
+    assert t.confirmed_tracks() == []
+
+
+def test_update_returns_empty_when_nothing_removed():
+    t = FaceTracker(min_iou=0.3, min_hits=1, max_lost=5, params=PARAMS, now_fn=FakeClock())
+    assert t.update([_face()]) == []
+
+
+def test_is_quality_frame_public():
+    t = _tracker()
+    good = _confirmed_track(t)                       # 80px tall, score 0.99
+    assert good.is_quality_frame() is True
+    t2 = _tracker()
+    small = _confirmed_track(t2, _face(y1=10, y2=40))  # 30px tall
+    assert small.is_quality_frame() is False
