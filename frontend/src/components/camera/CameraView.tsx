@@ -1,11 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import type { CameraWithStream } from '../../types/camera'
 import { api } from '../../api/client'
 import { Button } from '../ui/Button'
 import { StatusPill } from '../ui/StatusPill'
 import { DetectionOverlay } from './DetectionOverlay'
 import { HLSPlayer } from './HLSPlayer'
+import { EditCameraModal } from '../modals/EditCameraModal'
 
 interface Props {
   camera: CameraWithStream
@@ -31,6 +32,7 @@ function KVRow({ label, value, mono }: KVRowProps) {
 
 export function CameraView({ camera, onBack }: Props) {
   const qc = useQueryClient()
+  const [editOpen, setEditOpen] = useState(false)
   const status = camera.stream.status
   // Shared ref: HLSPlayer writes a getter for its current playback wall-clock
   // time; DetectionOverlay reads it to sync bbox display with video position.
@@ -149,6 +151,8 @@ export function CameraView({ camera, onBack }: Props) {
           </div>
         </div>
 
+        <EditCameraModal camera={camera} open={editOpen} onClose={() => setEditOpen(false)} />
+
         {/* Side panel */}
         <div className="border-l border-ink-border flex flex-col overflow-auto">
           <div className="px-5 py-4 border-b border-ink-border">
@@ -168,8 +172,14 @@ export function CameraView({ camera, onBack }: Props) {
 
           {/* Actions */}
           <div className="px-5 py-4 border-t border-ink-border flex flex-col gap-2">
-            <Button variant="ghost" size="sm" icon="settings-2" className="justify-start w-full">
-              Stream settings
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="settings-2"
+              className="justify-start w-full"
+              onClick={() => setEditOpen(true)}
+            >
+              Edit camera
             </Button>
             <Button
               variant="danger"
