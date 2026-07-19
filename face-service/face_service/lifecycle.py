@@ -88,7 +88,7 @@ class LifecycleEmitter:
                 st = _TrackState(started_ts=ts)
                 self._states[track.id] = st
 
-            if track.is_quality_frame():
+            if track.lost_count == 0 and track.is_quality_frame():
                 self._consider_crop(st, track, frame)
 
             if not st.confirmed:
@@ -103,7 +103,7 @@ class LifecycleEmitter:
                     events.append(self._msg("track_updated", track, st, ts))
 
         for track in removed:
-            st = self._states.get(track.id, None)
+            st = self._states.pop(track.id, None)
             if st is None or not st.confirmed:
                 continue
             msg = self._msg("track_ended", track, st, ts)

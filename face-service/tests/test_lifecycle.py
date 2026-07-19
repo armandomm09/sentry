@@ -135,8 +135,10 @@ def test_best_crop_improves_with_bigger_face():
     tracker, emitter, _ = _setup()
     _step(tracker, emitter, [_face(100, 100, 160, 160)], ts=100.0, votes=_match(sim=0.5))
     small_crop = emitter._states[0].crop_jpeg
+    # (95,95,185,185) overlaps (100,100,160,160) at IoU 0.44 >= min_iou 0.3,
+    # so it associates with the same track while growing the face 60px -> 90px.
     for i in range(2):
-        _step(tracker, emitter, [_face(80, 80, 240, 240)], ts=101.0 + i, votes=_match(sim=0.5))
+        _step(tracker, emitter, [_face(95, 95, 185, 185)], ts=101.0 + i, votes=_match(sim=0.5))
     big_crop = emitter._states[0].crop_jpeg
     assert big_crop is not None and small_crop is not None
     assert len(big_crop) != len(small_crop)  # crop was replaced
