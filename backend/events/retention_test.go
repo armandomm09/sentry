@@ -1,0 +1,76 @@
+package events
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/dim/sentry/backend/db"
+)
+
+func TestRunOnceExpiresClipsAndDeletesOldEvents(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	files := t.TempDir()
+
+	now := time.UnixMilli(10_000_000)
+
+	// Event with an expired clip (fresh enough to keep the row)
+	expiredClip := &db.Event{CameraID: "c", TrackKey: "k1", StartedAt: now.UnixMilli() - 1000}
+	d.CreateEvent(expiredClip)
+	clipPath := filepath.Join(files, "k1.mp4")
+	os.WriteFile(clipPath, []byte("mp4"), 0644)
+	d.SetEventClip(expiredClip.ID, clipPath, now.UnixMilli()-1) // already past expiry
+
+	// Event with a live clip
+	liveClip := &db.Event{CameraID: "c", TrackKey: "k2", StartedAt: now.UnixMilli() - 1000}
+	d.CreateEvent(liveClip)
+	livePath := filepath.Join(files, "k2.mp4")
+	os.WriteFile(livePath, []byte("mp4"), 0644)
+	d.SetEventClip(liveClip.ID, livePath, now.UnixMilli()+1_000_000)
+
+	// Ancient event past event-retention with a thumb file
+	ancient := &db.Event{CameraID: "c", TrackKey: "k3",
+		StartedAt: now.Add(-91 * 24 * time.Hour).UnixMilli()}
+	d.CreateEvent(ancient)
+	thumbPath := filepath.Join(files, "k3.jpg")
+	os.WriteFile(thumbPath, []byte("jpg"), 0644)
+	d.CloseEvent(ancient.ID, ancient.StartedAt+1, thumbPath, nil)
+
+	r := NewRetention(d, 90*24*time.Hour)
+	r.NowFn = func() time.Time { return now }
+
+	clips, events := r.RunOnce()
+	if clips != 1 || events != 1 {
+		t.Fatalf("clips=%d events=%d", clips, events)
+	}
+	if _, err := os.Stat(clipPath); !os.IsNotExist(err) {
+		t.Fatal("expired clip file not deleted")
+	}
+	if _, err := os.Stat(livePath); err != nil {
+		t.Fatal("live clip file must remain")
+	}
+	if _, err := os.Stat(thumbPath); !os.IsNotExist(err) {
+		t.Fatal("ancient event thumb not deleted")
+	}
+	got, _, _ := d.GetEvent(expiredClip.ID)
+	if !got.ClipExpired {
+		t.Fatal("clip_expired not set")
+	}
+	if _, ok, _ := d.GetEvent(ancient.ID); ok {
+		t.Fatal("ancient event row not deleted")
+	}
+	if _, ok, _ := d.GetEvent(liveClip.ID); !ok {
+		t.Fatal("fresh event must remain")
+	}
+
+	// idempotent
+	clips, events = r.RunOnce()
+	if clips != 0 || events != 0 {
+		t.Fatalf("second run: clips=%d events=%d", clips, events)
+	}
+}

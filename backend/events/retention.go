@@ -1,0 +1,90 @@
+package events
+
+import (
+	"context"
+	"log"
+	"os"
+	"time"
+
+	"github.com/dim/sentry/backend/db"
+)
+
+// Retention deletes clip files past their expiry (marking the event row) and
+// removes whole event rows + their files once past the event retention window.
+type Retention struct {
+	db             *db.DB
+	eventRetention time.Duration
+
+	Interval time.Duration
+	NowFn    func() time.Time
+}
+
+func NewRetention(database *db.DB, eventRetention time.Duration) *Retention {
+	return &Retention{
+		db:             database,
+		eventRetention: eventRetention,
+		Interval:       time.Hour,
+		NowFn:          time.Now,
+	}
+}
+
+// Start runs RunOnce immediately and then on every Interval tick until ctx ends.
+func (r *Retention) Start(ctx context.Context) {
+	r.RunOnce()
+	ticker := time.NewTicker(r.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.RunOnce()
+		}
+	}
+}
+
+func (r *Retention) RunOnce() (clipsDeleted, eventsDeleted int) {
+	now := r.NowFn()
+
+	expired, err := r.db.ListExpiredClips(now.UnixMilli())
+	if err != nil {
+		log.Printf("[retention] list expired clips: %v", err)
+	}
+	for _, e := range expired {
+		if err := os.Remove(e.ClipPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("[retention] delete clip %s: %v", e.ClipPath, err)
+			continue
+		}
+		if err := r.db.MarkClipExpired(e.ID); err != nil {
+			log.Printf("[retention] mark expired %s: %v", e.ID, err)
+			continue
+		}
+		clipsDeleted++
+	}
+
+	cutoff := now.Add(-r.eventRetention).UnixMilli()
+	old, err := r.db.ListEventsBefore(cutoff)
+	if err != nil {
+		log.Printf("[retention] list old events: %v", err)
+	}
+	for _, e := range old {
+		for _, p := range []string{e.ThumbPath, e.ClipPath} {
+			if p == "" {
+				continue
+			}
+			if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+				log.Printf("[retention] delete %s: %v", p, err)
+			}
+		}
+		if err := r.db.DeleteEvent(e.ID); err != nil {
+			log.Printf("[retention] delete event %s: %v", e.ID, err)
+			continue
+		}
+		eventsDeleted++
+	}
+
+	if clipsDeleted > 0 || eventsDeleted > 0 {
+		log.Printf("[retention] deleted %d expired clips, %d old events", clipsDeleted, eventsDeleted)
+	}
+	return clipsDeleted, eventsDeleted
+}
