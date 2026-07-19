@@ -74,3 +74,47 @@ func TestRunOnceExpiresClipsAndDeletesOldEvents(t *testing.T) {
 		t.Fatalf("second run: clips=%d events=%d", clips, events)
 	}
 }
+
+func TestRunOnceKeepsRowWhenFileDeletionFails(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	files := t.TempDir()
+
+	now := time.UnixMilli(10_000_000)
+
+	lockedDir := filepath.Join(files, "locked")
+	if err := os.MkdirAll(lockedDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	thumb := filepath.Join(lockedDir, "t.jpg")
+	if err := os.WriteFile(thumb, []byte("j"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Read-only parent dir makes os.Remove fail with a real (non-IsNotExist) error.
+	if err := os.Chmod(lockedDir, 0555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(lockedDir, 0755) })
+
+	ancient := &db.Event{CameraID: "c", TrackKey: "k-locked",
+		StartedAt: now.Add(-91 * 24 * time.Hour).UnixMilli()}
+	d.CreateEvent(ancient)
+	d.CloseEvent(ancient.ID, ancient.StartedAt+1, thumb, nil)
+
+	r := NewRetention(d, 90*24*time.Hour)
+	r.NowFn = func() time.Time { return now }
+
+	_, events := r.RunOnce()
+	if events != 0 {
+		t.Fatalf("events deleted = %d, want 0", events)
+	}
+	if _, ok, _ := d.GetEvent(ancient.ID); !ok {
+		t.Fatal("row must survive a failed file deletion so a later pass can retry")
+	}
+	if _, err := os.Stat(thumb); err != nil {
+		t.Fatal("thumb should still exist")
+	}
+}

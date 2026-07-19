@@ -68,13 +68,18 @@ func (r *Retention) RunOnce() (clipsDeleted, eventsDeleted int) {
 		log.Printf("[retention] list old events: %v", err)
 	}
 	for _, e := range old {
+		filesOK := true
 		for _, p := range []string{e.ThumbPath, e.ClipPath} {
 			if p == "" {
 				continue
 			}
 			if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 				log.Printf("[retention] delete %s: %v", p, err)
+				filesOK = false
 			}
+		}
+		if !filesOK {
+			continue // keep the row; deleting it now would orphan the file forever
 		}
 		if err := r.db.DeleteEvent(e.ID); err != nil {
 			log.Printf("[retention] delete event %s: %v", e.ID, err)
