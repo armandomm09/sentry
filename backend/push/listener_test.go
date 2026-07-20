@@ -52,6 +52,19 @@ func TestLifecycleGoesToSinkNotNotifier(t *testing.T) {
 	}
 }
 
+func TestEnsureWatchingIsIdempotent(t *testing.T) {
+	l := NewListener("http://127.0.0.1:1", &fakeSender{}, fakeStore{})
+	l.EnsureWatching("cam1")
+	l.EnsureWatching("cam1")
+	l.EnsureWatching("cam2")
+	l.mu.Lock()
+	n := len(l.watching)
+	l.mu.Unlock()
+	if n != 2 {
+		t.Fatalf("watching entries = %d, want 2", n)
+	}
+}
+
 func TestNilSinkAndGarbageAreSafe(t *testing.T) {
 	l := NewListener("http://x", &fakeSender{}, fakeStore{})
 	l.handleMessage("cam1", []byte(`{"type":"track_confirmed","track_key":"k"}`)) // no sink set

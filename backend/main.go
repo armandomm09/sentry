@@ -117,6 +117,7 @@ func main() {
 
 	// Handlers
 	cameraH := handlers.NewCameraHandler(store, manager, faceClient)
+	cameraH.SetWatcher(listener)
 	authH := handlers.NewAuthHandler(database, jwtMgr)
 	userH := handlers.NewUserHandler(database)
 	pushH := handlers.NewPushHandler(database)

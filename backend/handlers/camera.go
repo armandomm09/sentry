@@ -14,14 +14,28 @@ import (
 	"github.com/google/uuid"
 )
 
+// CameraWatcher lets the camera handler start push/event listeners for
+// cameras whose face recognition is enabled at runtime.
+type CameraWatcher interface {
+	EnsureWatching(cameraID string)
+}
+
 type CameraHandler struct {
 	store   *storage.JSONStore
 	manager *stream.Manager
 	face    *face.Client
+	watcher CameraWatcher
 }
 
 func NewCameraHandler(store *storage.JSONStore, manager *stream.Manager, faceClient *face.Client) *CameraHandler {
 	return &CameraHandler{store: store, manager: manager, face: faceClient}
+}
+
+// SetWatcher wires the push/event listener so cameras enabled for face
+// recognition after startup get watched immediately instead of only on
+// the next process restart. Nil-safe if never called.
+func (h *CameraHandler) SetWatcher(w CameraWatcher) {
+	h.watcher = w
 }
 
 // syncFaceRecognition reconciles face-service's view of a camera with the stored
@@ -105,6 +119,9 @@ func (h *CameraHandler) Create(c *gin.Context) {
 		}
 	}
 	h.syncFaceRecognition(c.Request.Context(), cam)
+	if cam.FaceRecognitionEnabled && h.watcher != nil {
+		h.watcher.EnsureWatching(cam.ID)
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"camera": cam,
@@ -158,6 +175,9 @@ func (h *CameraHandler) Update(c *gin.Context) {
 	// recycles the relay) — the face worker always connects to the relay, not RTSP.
 	if faceToggled {
 		h.syncFaceRecognition(c.Request.Context(), cam)
+	}
+	if cam.FaceRecognitionEnabled && h.watcher != nil {
+		h.watcher.EnsureWatching(cam.ID)
 	}
 	if rtspChanged {
 		// Restart the relay with the new source URL.

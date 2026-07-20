@@ -35,6 +35,8 @@ type Listener struct {
 	lastSent    map[string]time.Time // key: cameraID+":"+personKey
 	sink        func(raw []byte)
 	sinkMu      sync.RWMutex
+
+	watching map[string]bool // cameraIDs with an active reconnectLoop goroutine
 }
 
 func NewListener(faceBaseURL string, notifier Sender, store CameraNameStore) *Listener {
@@ -57,6 +59,22 @@ func (l *Listener) SetLifecycleSink(fn func(raw []byte)) {
 // WatchCamera starts a background goroutine that subscribes to the face-service
 // detection WS for cameraID. Reconnects automatically on disconnect.
 func (l *Listener) WatchCamera(cameraID string) {
+	l.EnsureWatching(cameraID)
+}
+
+// EnsureWatching starts the per-camera subscription goroutine once; later
+// calls for the same camera are no-ops. Safe from any goroutine.
+func (l *Listener) EnsureWatching(cameraID string) {
+	l.mu.Lock()
+	if l.watching == nil {
+		l.watching = make(map[string]bool)
+	}
+	if l.watching[cameraID] {
+		l.mu.Unlock()
+		return
+	}
+	l.watching[cameraID] = true
+	l.mu.Unlock()
 	go l.reconnectLoop(cameraID)
 }
 
