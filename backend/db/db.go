@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,12 +22,16 @@ type User struct {
 }
 
 type PushSubscription struct {
-	UserID        string   `json:"user_id"`
-	ExpoPushToken string   `json:"expo_push_token"`
-	CameraIDs     []string `json:"camera_ids"`
-	NotifyKnown   bool     `json:"notify_known"`
-	NotifyUnknown bool     `json:"notify_unknown"`
-	UpdatedAt     string   `json:"updated_at"`
+	UserID            string   `json:"user_id"`
+	ExpoPushToken     string   `json:"expo_push_token"`
+	CameraIDs         []string `json:"camera_ids"`
+	NotifyKnown       bool     `json:"notify_known"`
+	NotifyUnknown     bool     `json:"notify_unknown"`
+	NotifyKnownMode   string   `json:"notify_known_mode"`   // every | quiet_period | first_of_day
+	NotifyUnknownMode string   `json:"notify_unknown_mode"` // every | quiet_period | first_of_day
+	KnownQuietHours   float64  `json:"known_quiet_hours"`
+	UnknownQuietHours float64  `json:"unknown_quiet_hours"`
+	UpdatedAt         string   `json:"updated_at"`
 }
 
 const schema = `
@@ -43,6 +48,10 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 	camera_ids     TEXT NOT NULL DEFAULT '[]',
 	notify_known   INTEGER NOT NULL DEFAULT 1,
 	notify_unknown INTEGER NOT NULL DEFAULT 1,
+	notify_known_mode   TEXT NOT NULL DEFAULT 'every',
+	notify_unknown_mode TEXT NOT NULL DEFAULT 'every',
+	known_quiet_hours   REAL NOT NULL DEFAULT 4,
+	unknown_quiet_hours REAL NOT NULL DEFAULT 4,
 	updated_at     TEXT NOT NULL
 );
 `
@@ -58,6 +67,20 @@ func Open(path string) (*DB, error) {
 	}
 	if _, err := q.Exec(eventsSchema); err != nil {
 		return nil, fmt.Errorf("db migrate events: %w", err)
+	}
+	// In-place upgrades for databases created before the notification-policy
+	// columns existed. SQLite has no ADD COLUMN IF NOT EXISTS; a duplicate
+	// column error means the column is already there.
+	migrations := []string{
+		`ALTER TABLE push_subscriptions ADD COLUMN notify_known_mode TEXT NOT NULL DEFAULT 'every'`,
+		`ALTER TABLE push_subscriptions ADD COLUMN notify_unknown_mode TEXT NOT NULL DEFAULT 'every'`,
+		`ALTER TABLE push_subscriptions ADD COLUMN known_quiet_hours REAL NOT NULL DEFAULT 4`,
+		`ALTER TABLE push_subscriptions ADD COLUMN unknown_quiet_hours REAL NOT NULL DEFAULT 4`,
+	}
+	for _, m := range migrations {
+		if _, err := q.Exec(m); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return nil, fmt.Errorf("db migrate push policy: %w", err)
+		}
 	}
 	return &DB{q: q}, nil
 }
@@ -169,16 +192,23 @@ func (d *DB) UpsertPushSubscription(sub *PushSubscription) error {
 	}
 	sub.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	_, err = d.q.Exec(`
-		INSERT INTO push_subscriptions (user_id, expo_push_token, camera_ids, notify_known, notify_unknown, updated_at)
-		VALUES (?,?,?,?,?,?)
+		INSERT INTO push_subscriptions (user_id, expo_push_token, camera_ids,
+			notify_known, notify_unknown, notify_known_mode, notify_unknown_mode,
+			known_quiet_hours, unknown_quiet_hours, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(user_id) DO UPDATE SET
 			expo_push_token=excluded.expo_push_token,
 			camera_ids=excluded.camera_ids,
 			notify_known=excluded.notify_known,
 			notify_unknown=excluded.notify_unknown,
+			notify_known_mode=excluded.notify_known_mode,
+			notify_unknown_mode=excluded.notify_unknown_mode,
+			known_quiet_hours=excluded.known_quiet_hours,
+			unknown_quiet_hours=excluded.unknown_quiet_hours,
 			updated_at=excluded.updated_at`,
 		sub.UserID, sub.ExpoPushToken, string(cameraIDsJSON),
-		notifyKnownInt, notifyUnknownInt, sub.UpdatedAt,
+		notifyKnownInt, notifyUnknownInt, sub.NotifyKnownMode, sub.NotifyUnknownMode,
+		sub.KnownQuietHours, sub.UnknownQuietHours, sub.UpdatedAt,
 	)
 	return err
 }
@@ -188,9 +218,14 @@ func (d *DB) GetPushSubscription(userID string) (*PushSubscription, bool, error)
 	var cameraIDsJSON string
 	var notifyKnownInt, notifyUnknownInt int
 	err := d.q.QueryRow(
-		`SELECT user_id, expo_push_token, camera_ids, notify_known, notify_unknown, updated_at FROM push_subscriptions WHERE user_id=?`,
+		`SELECT user_id, expo_push_token, camera_ids, notify_known, notify_unknown,
+			notify_known_mode, notify_unknown_mode, known_quiet_hours, unknown_quiet_hours,
+			updated_at
+		FROM push_subscriptions WHERE user_id=?`,
 		userID,
-	).Scan(&sub.UserID, &sub.ExpoPushToken, &cameraIDsJSON, &notifyKnownInt, &notifyUnknownInt, &sub.UpdatedAt)
+	).Scan(&sub.UserID, &sub.ExpoPushToken, &cameraIDsJSON, &notifyKnownInt, &notifyUnknownInt,
+		&sub.NotifyKnownMode, &sub.NotifyUnknownMode, &sub.KnownQuietHours, &sub.UnknownQuietHours,
+		&sub.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -211,7 +246,10 @@ func (d *DB) DeletePushSubscription(userID string) error {
 }
 
 func (d *DB) ListPushSubscriptions() ([]*PushSubscription, error) {
-	rows, err := d.q.Query(`SELECT user_id, expo_push_token, camera_ids, notify_known, notify_unknown FROM push_subscriptions`)
+	rows, err := d.q.Query(`SELECT user_id, expo_push_token, camera_ids,
+		notify_known, notify_unknown, notify_known_mode, notify_unknown_mode,
+		known_quiet_hours, unknown_quiet_hours
+		FROM push_subscriptions`)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +259,9 @@ func (d *DB) ListPushSubscriptions() ([]*PushSubscription, error) {
 		sub := &PushSubscription{}
 		var cameraIDsJSON string
 		var notifyKnownInt, notifyUnknownInt int
-		if err := rows.Scan(&sub.UserID, &sub.ExpoPushToken, &cameraIDsJSON, &notifyKnownInt, &notifyUnknownInt); err != nil {
+		if err := rows.Scan(&sub.UserID, &sub.ExpoPushToken, &cameraIDsJSON,
+			&notifyKnownInt, &notifyUnknownInt, &sub.NotifyKnownMode, &sub.NotifyUnknownMode,
+			&sub.KnownQuietHours, &sub.UnknownQuietHours); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(cameraIDsJSON), &sub.CameraIDs); err != nil {
