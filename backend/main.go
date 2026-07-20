@@ -5,10 +5,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/dim/sentry/backend/auth"
 	"github.com/dim/sentry/backend/db"
+	"github.com/dim/sentry/backend/events"
 	"github.com/dim/sentry/backend/face"
 	"github.com/dim/sentry/backend/handlers"
 	"github.com/dim/sentry/backend/push"
@@ -63,6 +66,23 @@ func main() {
 	notifier := push.NewNotifier(database, store)
 	notifier.Start()
 	listener := push.NewListener(faceURL, notifier, store)
+
+	// Sighting events: lifecycle messages -> SQLite events + thumbs + clips
+	clipsDir := filepath.Join(dataDir, "clips")
+	thumbsDir := filepath.Join(dataDir, "thumbs")
+	for _, dir := range []string{clipsDir, thumbsDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	clipRetention := time.Duration(envIntOr("SENTRY_CLIP_RETENTION_HOURS", 72)) * time.Hour
+	eventRetention := time.Duration(envIntOr("SENTRY_EVENT_RETENTION_DAYS", 90)) * 24 * time.Hour
+	cutter := events.NewClipCutter(stream.HLSDir(), clipsDir)
+	recorder := events.NewRecorder(database, thumbsDir, cutter, clipRetention)
+	listener.SetLifecycleSink(recorder.OnLifecycle)
+	retention := events.NewRetention(database, eventRetention)
+	go retention.Start(context.Background())
+
 	for _, cam := range store.List() {
 		if cam.FaceRecognitionEnabled {
 			listener.WatchCamera(cam.ID)
@@ -145,6 +165,17 @@ func main() {
 				cameras.GET("/:id/stream/status", cameraH.StreamStatus)
 			}
 
+			// Sighting events (log, thumbs, clips, unknown labeling)
+			eventsH := handlers.NewEventsHandler(database, faceClient)
+			eventsGroup := authed.Group("/events")
+			{
+				eventsGroup.GET("", eventsH.List)
+				eventsGroup.GET("/:id", eventsH.Get)
+				eventsGroup.GET("/:id/thumb", eventsH.Thumb)
+				eventsGroup.GET("/:id/clip", eventsH.Clip)
+				eventsGroup.POST("/:id/label", eventsH.Label)
+			}
+
 			authed.GET("/streams", cameraH.AllStreamStatuses)
 
 			// Face-service detection WebSocket — proxied and auth-protected
@@ -167,6 +198,15 @@ func main() {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func envIntOr(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return fallback
 }

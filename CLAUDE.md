@@ -95,7 +95,7 @@ go test ./...
 go vet ./...
 ```
 
-**Key env vars:** `SENTRY_DATA_DIR` (default `./data`), `SENTRY_DB_PATH`, `PORT` (default `8080`), `FACE_SERVICE_URL` (default `http://127.0.0.1:8090`), `JWT_SECRET`.
+**Key env vars:** `SENTRY_DATA_DIR` (default `./data`), `SENTRY_DB_PATH`, `PORT` (default `8080`), `FACE_SERVICE_URL` (default `http://127.0.0.1:8090`), `JWT_SECRET`, `SENTRY_CLIP_RETENTION_HOURS` (default `72`), `SENTRY_EVENT_RETENTION_DAYS` (default `90`).
 
 **Default credentials on first run:** `admin` / `sentry123`
 
@@ -104,6 +104,7 @@ go vet ./...
 - `stream/` — each camera gets a `Relay` that FFmpeg-transcodes RTSP to HLS segments written to `/tmp/sentry/streams/<camera-id>/`. Frames are also fanned out to subscribers via channels for the face-service to consume.
 - `face/` — `client.go` calls the Python face-service REST API; `proxy.go` reverse-proxies `/api/persons/*` and `/api/augmentation/*` to it and `/face/cameras/{id}/ws` (detection WebSocket) to the face-service's `/cameras/{id}/ws`. `SyncFromStore` + `RunSyncLoop` keep face-service's camera list in sync with `cameras.json`.
 - `push/` — `listener.go` subscribes to the face-service detection WebSocket per camera; `notifier.go` batches and sends via Expo Push API.
+- `events/` — sighting events. `recorder.go` consumes track lifecycle messages (`track_confirmed`/`track_updated`/`track_ended`) dispatched by `push/listener.go`, persisting one event per confirmed track with a best-face thumbnail (`data/thumbs/`). `clips.go` copies live HLS segments from confirm time (pre-roll ≈ 10s) until track end + 5s and stitches them losslessly into `data/clips/<event_id>.mp4` (cap 2 min). `retention.go` expires clips after `SENTRY_CLIP_RETENTION_HOURS` and deletes event rows + thumbs after `SENTRY_EVENT_RETENTION_DAYS`. REST surface: `/api/events` (list/detail/thumb/clip/label — labeling enrolls the crop via the face-service and retro-labels matching unknowns).
 - `storage/json_store.go` — camera config persisted to `data/cameras.json`. Cameras have an optional `snapshot_url` (HTTP JPEG endpoint) used by the frontend's per-camera snapshot preview (`CameraSnapshot.tsx`) without starting a full HLS stream.
 - `db/db.go` — SQLite (`modernc.org/sqlite`) for users and push subscriptions.
 - HLS segments are served statically at `/hls` → `/tmp/sentry/streams/`.
@@ -118,6 +119,7 @@ go vet ./...
 - `worker.py` — connects to Go's frame WebSocket, decodes JPEG frames, calls `recognizer.py`, runs the tracker, and publishes detection events to subscribers.
 - `recognizer.py` — InsightFace (`buffalo_l` model). Maintains an in-memory embedding index; `bump_index_version()` triggers a rebuild. Matcher uses cosine similarity on L2-normalized 512-d ArcFace embeddings.
 - `tracker.py` — IoU-based SORT tracker with a sticky-identity state machine (`pending → known | unknown`). Quality gating (face ≥ `FACE_SERVICE_MIN_VOTE_FACE_PX` px tall, det score ≥ `FACE_SERVICE_MIN_VOTE_DET_SCORE`) decides which frames may vote; identities acquire at `FACE_SERVICE_ACQUIRE_THRESHOLD` and are kept at `FACE_SERVICE_KEEP_THRESHOLD` (hysteresis); "unknown" requires `FACE_SERVICE_UNKNOWN_MIN_AGE_S` seconds and `FACE_SERVICE_UNKNOWN_MIN_VOTES` quality votes. A known track never reverts to unknown.
+- `lifecycle.py` — `LifecycleEmitter` turns tracker state transitions into `track_confirmed`/`track_updated`/`track_ended` WS messages carrying the track's best face crop (JPEG, chosen by area × det score × sharpness) and its embedding. Consumed by the Go backend's event recorder.
 - `augmentation.py` — generates embedding variants from a single enrollment photo (flips, rotations, brightness shifts) to improve robustness across multiple lighting conditions.
 - `persons.py` / `db.py` — person+photo store backed by SQLite at `data/face.db`.
 - GPU: OnnxRuntime provider order is TensorRT → CUDA → CoreML → CPU; the recognizer silently skips unsupported providers.
