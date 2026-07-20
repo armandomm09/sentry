@@ -11,15 +11,17 @@ import (
 )
 
 type detectionFrame struct {
-	Type       string      `json:"type"`
-	CameraID   string      `json:"camera_id"`
-	Detections []detection `json:"detections"`
+	Type     string `json:"type"`
+	CameraID string `json:"camera_id"`
 }
 
-type detection struct {
-	PersonID string  `json:"person_id"`
-	Name     string  `json:"name"`
-	Score    float64 `json:"score"`
+// trackConfirmedMsg mirrors face-service lifecycle.py's track_confirmed
+// payload (only the fields notifications need).
+type trackConfirmedMsg struct {
+	TrackKey string  `json:"track_key"`
+	TS       float64 `json:"ts"`
+	PersonID *string `json:"person_id"`
+	Name     *string `json:"name"`
 }
 
 // Sender is the notification outlet. *Notifier satisfies it.
@@ -32,7 +34,6 @@ type Listener struct {
 	notifier    Sender
 	store       CameraNameStore
 	mu          sync.Mutex
-	lastSent    map[string]time.Time // key: cameraID+":"+personKey
 	sink        func(raw []byte)
 	sinkMu      sync.RWMutex
 
@@ -44,7 +45,6 @@ func NewListener(faceBaseURL string, notifier Sender, store CameraNameStore) *Li
 		faceBaseURL: faceBaseURL,
 		notifier:    notifier,
 		store:       store,
-		lastSent:    make(map[string]time.Time),
 	}
 }
 
@@ -107,61 +107,51 @@ func (l *Listener) connectAndRead(wsURL, cameraID string) error {
 	}
 }
 
-// handleMessage routes one raw WS message: per-frame detections drive push
-// notifications (unchanged behavior); track lifecycle messages go to the sink.
+// handleMessage routes one raw WS message: track lifecycle messages go to the
+// sink; track_confirmed also triggers a notification.
 func (l *Listener) handleMessage(cameraID string, msg []byte) {
 	var frame detectionFrame
 	if err := json.Unmarshal(msg, &frame); err != nil {
 		return
 	}
 	switch frame.Type {
-	case "detections":
-		l.handleDetections(cameraID, &frame)
 	case "track_confirmed", "track_updated", "track_ended":
 		l.sinkMu.RLock()
 		sink := l.sink
 		l.sinkMu.RUnlock()
 		if sink != nil {
+			// Synchronous: the events recorder persists the row before we
+			// enqueue the notification, so dispatch can resolve event_id.
 			sink(msg)
+		}
+		if frame.Type == "track_confirmed" {
+			l.notifyConfirmed(cameraID, msg)
 		}
 	}
 }
 
-func (l *Listener) handleDetections(cameraID string, frame *detectionFrame) {
-	if len(frame.Detections) == 0 {
+// notifyConfirmed emits exactly one notification per confirmed track.
+// Policy filtering (every / quiet_period / first_of_day) happens in the
+// Notifier, which reads last-seen state from the events table.
+func (l *Listener) notifyConfirmed(cameraID string, raw []byte) {
+	var m trackConfirmedMsg
+	if err := json.Unmarshal(raw, &m); err != nil || m.TrackKey == "" {
 		return
 	}
-	cameraName := l.store.GetCameraName(cameraID)
-	for _, det := range frame.Detections {
-		isKnown := det.PersonID != ""
-		name := det.Name
-		if !isKnown {
-			name = ""
-		}
-
-		personKey := det.PersonID
-		if personKey == "" {
-			personKey = "unknown"
-		}
-		cooldownKey := cameraID + ":" + personKey
-
-		l.mu.Lock()
-		lastTime, exists := l.lastSent[cooldownKey]
-		shouldSend := !exists || time.Since(lastTime) >= 60*time.Second
-		if shouldSend {
-			l.lastSent[cooldownKey] = time.Now()
-		}
-		l.mu.Unlock()
-
-		if !shouldSend {
-			continue
-		}
-
-		l.notifier.Send(Message{
-			CameraID:   cameraID,
-			CameraName: cameraName,
-			PersonName: name,
-			IsKnown:    isKnown,
-		})
+	personID, name := "", ""
+	if m.PersonID != nil {
+		personID = *m.PersonID
 	}
+	if m.Name != nil {
+		name = *m.Name
+	}
+	l.notifier.Send(Message{
+		CameraID:   cameraID,
+		CameraName: l.store.GetCameraName(cameraID),
+		PersonID:   personID,
+		PersonName: name,
+		IsKnown:    personID != "",
+		TrackKey:   m.TrackKey,
+		StartedAt:  int64(m.TS * 1000),
+	})
 }
