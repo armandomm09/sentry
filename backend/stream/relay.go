@@ -127,7 +127,11 @@ func (r *Relay) startHLSEncoder(ctx context.Context) (*os.File, error) {
 		"-f", "hls",
 		"-hls_time", "2",
 		"-hls_list_size", "5",
-		"-hls_flags", "delete_segments+independent_segments+program_date_time",
+		// temp_file: ffmpeg writes segNNNNN.ts.tmp and renames atomically on
+		// completion. Without it, the ClipCutter in backend/events/clips.go
+		// (which copies live segments off disk while an event is recording)
+		// can read a segment mid-write and produce a truncated clip.
+		"-hls_flags", "delete_segments+independent_segments+program_date_time+temp_file",
 		"-hls_segment_type", "mpegts",
 		"-hls_segment_filename", filepath.Join(r.outDir, "seg%05d.ts"),
 		playlist,
