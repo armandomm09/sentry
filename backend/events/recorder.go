@@ -56,6 +56,8 @@ type lifecycleMsg struct {
 func (r *Recorder) OnLifecycle(raw []byte) {
 	var m lifecycleMsg
 	if err := json.Unmarshal(raw, &m); err != nil || m.TrackKey == "" {
+		// Keyless messages are treated as malformed and dropped — every real
+		// lifecycle message carries a track_key.
 		return
 	}
 	switch m.Type {

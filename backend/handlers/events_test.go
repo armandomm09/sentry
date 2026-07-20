@@ -265,4 +265,7 @@ func TestCosine(t *testing.T) {
 	if c := cosineSim([]byte{1, 2}, embBytes(0)); c != -1 {
 		t.Fatalf("mismatched lengths: %f", c)
 	}
+	if c := cosineSim([]byte{1, 2, 3}, []byte{4, 5, 6}); c != -1 {
+		t.Fatalf("non-multiple-of-4: %f", c)
+	}
 }

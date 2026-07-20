@@ -42,6 +42,9 @@ type capture struct {
 }
 
 func NewClipCutter(hlsRoot, clipsDir string) *ClipCutter {
+	// Sweep orphaned staging directories left behind by an unclean shutdown
+	// (process killed mid-capture); they're never referenced again.
+	os.RemoveAll(filepath.Join(clipsDir, "staging"))
 	return &ClipCutter{
 		hlsRoot:  hlsRoot,
 		clipsDir: clipsDir,

@@ -116,7 +116,11 @@ func (h *EventsHandler) Get(c *gin.Context) {
 
 func (h *EventsHandler) Thumb(c *gin.Context) {
 	ev, ok, err := h.db.GetEvent(c.Param("id"))
-	if err != nil || !ok || ev.ThumbPath == "" {
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if !ok || ev.ThumbPath == "" {
 		c.JSON(http.StatusNotFound, gin.H{"error": "no thumbnail"})
 		return
 	}

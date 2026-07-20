@@ -110,7 +110,8 @@ class LifecycleEmitter:
             msg["started_ts"] = st.started_ts
             msg["ended_ts"] = ts
             if st.crop_embedding is not None:
-                emb = np.asarray(st.crop_embedding, dtype=np.float32)
+                # Explicit little-endian: the Go side decodes with binary.LittleEndian.
+                emb = np.asarray(st.crop_embedding, dtype="<f4")
                 msg["embedding_b64"] = base64.b64encode(emb.tobytes()).decode("ascii")
             else:
                 msg["embedding_b64"] = None
