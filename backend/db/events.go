@@ -237,3 +237,31 @@ func (d *DB) queryEvents(query string, args ...any) ([]*Event, error) {
 	}
 	return out, rows.Err()
 }
+
+// LastSeenPerson returns the started_at of the person's most recent event that
+// began strictly before beforeMs, across all cameras. Labeled unknowns count.
+// Pass the current event's started_at as beforeMs so it never matches itself.
+func (d *DB) LastSeenPerson(personID string, beforeMs int64) (int64, bool, error) {
+	var ts sql.NullInt64
+	err := d.q.QueryRow(`SELECT MAX(started_at) FROM events
+		WHERE (person_id=? OR labeled_person_id=?) AND started_at<?`,
+		personID, personID, beforeMs).Scan(&ts)
+	if err != nil {
+		return 0, false, err
+	}
+	return ts.Int64, ts.Valid, nil
+}
+
+// LastSeenUnknown returns the started_at of the most recent still-unlabeled
+// unknown sighting on one camera that began strictly before beforeMs.
+// Unknowns have no identity to dedupe on, so the quiet period is per camera.
+func (d *DB) LastSeenUnknown(cameraID string, beforeMs int64) (int64, bool, error) {
+	var ts sql.NullInt64
+	err := d.q.QueryRow(`SELECT MAX(started_at) FROM events
+		WHERE person_id='' AND labeled_person_id='' AND camera_id=? AND started_at<?`,
+		cameraID, beforeMs).Scan(&ts)
+	if err != nil {
+		return 0, false, err
+	}
+	return ts.Int64, ts.Valid, nil
+}

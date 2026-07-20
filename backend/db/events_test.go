@@ -191,3 +191,60 @@ func TestListUnknownWithEmbeddings(t *testing.T) {
 		t.Fatalf("unknown w/ emb: %d %v", len(got), err)
 	}
 }
+
+func TestLastSeenPerson(t *testing.T) {
+	d := testDB(t)
+	mk := func(key, personID, labeled string, startedAt int64, camera string) {
+		t.Helper()
+		if _, err := d.CreateEvent(&Event{
+			CameraID: camera, TrackKey: key,
+			PersonID: personID, LabeledPersonID: labeled, StartedAt: startedAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("k1", "alice", "", 1000, "cam1")
+	mk("k2", "alice", "", 5000, "cam2") // most recent, different camera
+	mk("k3", "", "alice", 3000, "cam1") // labeled counts too
+	mk("k4", "bob", "", 9000, "cam1")   // other person
+
+	ts, ok, err := d.LastSeenPerson("alice", 10000)
+	if err != nil || !ok || ts != 5000 {
+		t.Fatalf("got ts=%d ok=%v err=%v, want 5000 true", ts, ok, err)
+	}
+	// beforeMs excludes events at or after it — the current event never counts.
+	ts, ok, err = d.LastSeenPerson("alice", 5000)
+	if err != nil || !ok || ts != 3000 {
+		t.Fatalf("got ts=%d ok=%v err=%v, want 3000 true", ts, ok, err)
+	}
+	_, ok, err = d.LastSeenPerson("carol", 10000)
+	if err != nil || ok {
+		t.Fatalf("unseen person: ok=%v err=%v, want false", ok, err)
+	}
+}
+
+func TestLastSeenUnknownPerCamera(t *testing.T) {
+	d := testDB(t)
+	mk := func(key, personID, labeled string, startedAt int64, camera string) {
+		t.Helper()
+		if _, err := d.CreateEvent(&Event{
+			CameraID: camera, TrackKey: key,
+			PersonID: personID, LabeledPersonID: labeled, StartedAt: startedAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("u1", "", "", 1000, "cam1")
+	mk("u2", "", "", 4000, "cam2")      // other camera must not count
+	mk("u3", "alice", "", 6000, "cam1") // known must not count
+	mk("u4", "", "bob", 7000, "cam1")   // labeled unknown must not count
+
+	ts, ok, err := d.LastSeenUnknown("cam1", 10000)
+	if err != nil || !ok || ts != 1000 {
+		t.Fatalf("got ts=%d ok=%v err=%v, want 1000 true", ts, ok, err)
+	}
+	_, ok, err = d.LastSeenUnknown("cam3", 10000)
+	if err != nil || ok {
+		t.Fatalf("camera with no unknowns: ok=%v, want false", ok)
+	}
+}
