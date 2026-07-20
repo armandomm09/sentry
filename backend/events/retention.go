@@ -17,6 +17,10 @@ type Retention struct {
 
 	Interval time.Duration
 	NowFn    func() time.Time
+
+	// StaleOpenAfter is how long an event can stay open (ended_at=0) before
+	// retention force-closes it, for cases where track_ended was lost.
+	StaleOpenAfter time.Duration
 }
 
 func NewRetention(database *db.DB, eventRetention time.Duration) *Retention {
@@ -25,6 +29,7 @@ func NewRetention(database *db.DB, eventRetention time.Duration) *Retention {
 		eventRetention: eventRetention,
 		Interval:       time.Hour,
 		NowFn:          time.Now,
+		StaleOpenAfter: 15 * time.Minute,
 	}
 }
 
@@ -45,6 +50,14 @@ func (r *Retention) Start(ctx context.Context) {
 
 func (r *Retention) RunOnce() (clipsDeleted, eventsDeleted int) {
 	now := r.NowFn()
+
+	// Close events whose track_ended was lost; nothing can still be live
+	// after StaleOpenAfter (clip capture caps at 2 minutes).
+	if n, err := r.db.CloseStaleEvents(now.Add(-r.StaleOpenAfter).UnixMilli(), (2 * time.Minute).Milliseconds()); err != nil {
+		log.Printf("[retention] close stale events: %v", err)
+	} else if n > 0 {
+		log.Printf("[retention] closed %d stale open events", n)
+	}
 
 	expired, err := r.db.ListExpiredClips(now.UnixMilli())
 	if err != nil {

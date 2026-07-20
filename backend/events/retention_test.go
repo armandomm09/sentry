@@ -75,6 +75,36 @@ func TestRunOnceExpiresClipsAndDeletesOldEvents(t *testing.T) {
 	}
 }
 
+func TestRunOnceClosesStaleOpenEvents(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	now := time.UnixMilli(100_000_000)
+
+	stale := &db.Event{CameraID: "c", TrackKey: "k-stale",
+		StartedAt: now.Add(-time.Hour).UnixMilli()}
+	fresh := &db.Event{CameraID: "c", TrackKey: "k-fresh",
+		StartedAt: now.Add(-time.Minute).UnixMilli()}
+	d.CreateEvent(stale)
+	d.CreateEvent(fresh)
+
+	r := NewRetention(d, 90*24*time.Hour)
+	r.NowFn = func() time.Time { return now }
+	r.RunOnce()
+
+	got, _, _ := d.GetEvent(stale.ID)
+	want := stale.StartedAt + (2 * time.Minute).Milliseconds()
+	if got.EndedAt != want {
+		t.Fatalf("stale ended_at = %d, want %d", got.EndedAt, want)
+	}
+	got, _, _ = d.GetEvent(fresh.ID)
+	if got.EndedAt != 0 {
+		t.Fatal("fresh open event must stay open")
+	}
+}
+
 func TestRunOnceKeepsRowWhenFileDeletionFails(t *testing.T) {
 	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

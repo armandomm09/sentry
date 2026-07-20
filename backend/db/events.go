@@ -208,6 +208,19 @@ func (d *DB) DeleteEvent(id string) error {
 	return err
 }
 
+// CloseStaleEvents stamps ended_at on events still open (ended_at=0) whose
+// started_at is older than cutoffMs — their track_ended was lost (WS drop,
+// worker crash). ended_at is set to started_at + endedOffsetMs, the maximum
+// duration a real track could have produced. Returns the number closed.
+func (d *DB) CloseStaleEvents(cutoffMs, endedOffsetMs int64) (int64, error) {
+	res, err := d.q.Exec(`UPDATE events SET ended_at = started_at + ?
+		WHERE ended_at = 0 AND started_at < ?`, endedOffsetMs, cutoffMs)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (d *DB) queryEvents(query string, args ...any) ([]*Event, error) {
 	rows, err := d.q.Query(query, args...)
 	if err != nil {
