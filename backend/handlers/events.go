@@ -180,6 +180,10 @@ func (h *EventsHandler) Label(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "person_id or new_person_name required"})
 		return
 	}
+	if req.PersonID != "" && req.NewPersonName != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provide person_id or new_person_name, not both"})
+		return
+	}
 
 	jpeg, err := os.ReadFile(ev.ThumbPath)
 	if err != nil {

@@ -241,6 +241,10 @@ func TestLabelValidation(t *testing.T) {
 	if w := doReq(t, r, "POST", "/api/events/nope/label", map[string]string{"person_id": "p"}); w.Code != 404 {
 		t.Fatalf("missing event: %d", w.Code)
 	}
+	if w := doReq(t, r, "POST", "/api/events/"+unknown.ID+"/label",
+		map[string]string{"person_id": "p2", "new_person_name": "X"}); w.Code != 400 {
+		t.Fatalf("both fields accepted: %d", w.Code)
+	}
 	enroller.fail = true
 	if w := doReq(t, r, "POST", "/api/events/"+unknown.ID+"/label", map[string]string{"person_id": "p2"}); w.Code != 502 {
 		t.Fatalf("enroller failure: %d", w.Code)
