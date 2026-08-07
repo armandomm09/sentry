@@ -54,10 +54,10 @@ COPY face-service/face_service/ ./face_service/
 COPY docker/face-service/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 8090
+EXPOSE 9306
 
 ENV FACE_SERVICE_HOST=0.0.0.0 \
-    FACE_SERVICE_PORT=8090 \
+    FACE_SERVICE_PORT=9306 \
     FACE_SERVICE_DATA_DIR=/app/data \
     INSIGHTFACE_HOME=/root/.insightface
 

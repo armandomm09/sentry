@@ -109,9 +109,10 @@ Force a specific mode:
 
 | Service | URL |
 |---------|-----|
-| Web dashboard | http://localhost:5173 |
-| Backend API | http://localhost:8080 |
-| Face service | http://localhost:8090 |
+| Web dashboard | http://localhost:5174 |
+| Backend API | http://localhost:8081 |
+
+Face service has no host port published — it's reached only over the internal Docker network (by the backend and frontend).
 
 Default credentials: **admin** / **sentry123** (change after first login).
 
@@ -184,10 +185,10 @@ npx expo start --ios
 ```
 
 Expo opens the iOS Simulator automatically. On the login screen enter:
-- **Server URL:** `http://localhost:8080`
+- **Server URL:** `http://localhost:9305` (or `http://localhost:8081` if the backend is running via Docker/`start.sh`)
 - **Username / Password:** `admin` / `sentry123`
 
-The simulator shares the Mac's localhost, so `localhost:8080` reaches the backend directly.
+The simulator shares the Mac's localhost, so `localhost:9305` reaches the backend directly.
 
 ---
 
@@ -201,9 +202,9 @@ npx expo start --android
 ```
 
 On the login screen the emulator uses `10.0.2.2` as its gateway to the host:
-- **Server URL:** `http://10.0.2.2:8080`
+- **Server URL:** `http://10.0.2.2:9305` (or `:8081` if the backend is running via Docker/`start.sh`)
 
-> If you are running the backend in Docker, make sure port 8080 is published (it is by default in `docker-compose.yml`).
+> If you are running the backend in Docker, make sure port 8081 is published (it is by default in `docker-compose.yml`).
 
 ---
 
@@ -226,7 +227,7 @@ npx expo start
 **3. Scan the QR code** in the terminal with the Expo Go app (iOS / Android).
 
 **4. On the Sentry login screen enter:**
-- **Server URL:** `http://192.168.1.42:8080` (replace with your LAN IP)
+- **Server URL:** `http://192.168.1.42:9305` (replace with your LAN IP; use `:8081` if the backend is running via Docker/`start.sh`)
 
 > Push notifications require a real device (not a simulator). The Expo push token is registered with the backend automatically after login when you grant notification permission.
 
@@ -258,7 +259,7 @@ To test the end-to-end flow: add a camera, enroll a person with a photo, point t
 Copy `.env.example` to `.env` and fill in `JWT_SECRET`.
 
 ### Face-service fails to connect to backend
-Check that `FACE_SERVICE_RELAY_URL=ws://backend:8080` is set (automatic in Docker). In dev mode the default is `ws://127.0.0.1:8080`, which is correct.
+Check that `FACE_SERVICE_RELAY_URL=ws://backend:9305` is set (automatic in Docker). In dev mode the default is `ws://127.0.0.1:9305`, which is correct.
 
 ### GPU mode: `Failed to create CUDAExecutionProvider`
 The NVIDIA Container Toolkit is not configured. See the GPU prerequisites section above.

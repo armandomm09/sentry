@@ -19,13 +19,13 @@ sleep 2
 # Clean up stale HLS segments so new relays start with a clean slate
 rm -rf /tmp/sentry/streams 2>/dev/null || true
 
-echo "Starting Sentry backend on :8080…"
+echo "Starting Sentry backend on :9305…"
 cd "$ROOT/backend"
 go run . &
 BACKEND_PID=$!
 
 if [[ -x "$FACE_VENV/bin/python" ]]; then
-  echo "Starting Sentry face-service on :8090…"
+  echo "Starting Sentry face-service on :9306…"
   cd "$ROOT/face-service"
   # Include cuDNN 9 and cuBLAS from the venv's NVIDIA packages so ORT's
   # CUDAExecutionProvider can find them (the system ships cuDNN 8 only).
@@ -51,9 +51,9 @@ npm run dev -- --host 0.0.0.0 &
 FRONTEND_PID=$!
 
 echo ""
-echo "  Backend     → http://localhost:8080"
+echo "  Backend     → http://localhost:9305"
 if [[ -n "$FACE_PID" ]]; then
-  echo "  Face-service → http://localhost:8090"
+  echo "  Face-service → http://localhost:9306"
 fi
 echo "  Frontend    → http://localhost:5173"
 echo ""

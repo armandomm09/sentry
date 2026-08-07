@@ -10,14 +10,14 @@ services:
       context: .
       dockerfile: docker/backend/Dockerfile
     ports:
-      - "8080:8080"
+      - "8081:9305"
     volumes:
       - ./backend/data:/app/data
       - hls_streams:/tmp/sentry/streams
     environment:
-      - PORT=8080
+      - PORT=9305
       - SENTRY_DATA_DIR=/app/data
-      - FACE_SERVICE_URL=http://face-service:8090
+      - FACE_SERVICE_URL=http://face-service:9306
       - JWT_SECRET=${JWT_SECRET}
     depends_on:
       - face-service
@@ -33,9 +33,9 @@ services:
       - ./face-service/data:/app/data
     environment:
       - FACE_SERVICE_HOST=0.0.0.0
-      - FACE_SERVICE_PORT=8090
+      - FACE_SERVICE_PORT=9306
       - FACE_SERVICE_DATA_DIR=/app/data
-      - FACE_SERVICE_RELAY_URL=ws://backend:8080
+      - FACE_SERVICE_RELAY_URL=ws://backend:9305
       - FACE_SERVICE_PROVIDERS=CPUExecutionProvider
     restart: unless-stopped
 
@@ -44,7 +44,7 @@ services:
       context: .
       dockerfile: docker/frontend/Dockerfile
     ports:
-      - "5173:80"
+      - "5174:80"
     volumes:
       - hls_streams:/hls:ro
     depends_on:

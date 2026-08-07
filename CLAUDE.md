@@ -8,8 +8,8 @@ Sentry is a home monitoring system composed of four services:
 
 | Service | Port | Language | Purpose |
 |---------|------|----------|---------|
-| `backend/` | 8080 | Go (Gin) | RTSP→HLS streaming, auth, REST API, push dispatch |
-| `face-service/` | 8090 | Python (aiohttp) | InsightFace recognition, person enrollment, detection WebSocket |
+| `backend/` | 9305 | Go (Gin) | RTSP→HLS streaming, auth, REST API, push dispatch |
+| `face-service/` | 9306 | Python (aiohttp) | InsightFace recognition, person enrollment, detection WebSocket |
 | `frontend/` | 5173 | React + Vite | Web dashboard |
 | `mobile/` | — | Expo (React Native) | iOS/Android app with push notifications |
 
@@ -55,7 +55,7 @@ cp .env.example .env    # set JWT_SECRET first
 ./start.sh --down   # stop
 ```
 
-Services are available at the same ports (5173 frontend, 8080 backend, 8090 face-service). See `RUNNING.md` for the full guide including mobile setup.
+Frontend is available at 5174, backend at 8081 (`docker-compose.yml` host bindings; internal container ports are 9305/9306). face-service has no host binding — it's reached only over the internal Docker network. When deployed behind a reverse proxy (e.g. Coolify/Traefik) with a domain, only the frontend needs to be reachable — it proxies `/api`, `/face`, and `/hls` to the backend/face-service internally. See `RUNNING.md` for the full guide including mobile setup.
 
 **Rebuild after changes:**
 ```bash
@@ -95,7 +95,7 @@ go test ./...
 go vet ./...
 ```
 
-**Key env vars:** `SENTRY_DATA_DIR` (default `./data`), `SENTRY_DB_PATH`, `PORT` (default `8080`), `FACE_SERVICE_URL` (default `http://127.0.0.1:8090`), `JWT_SECRET`, `SENTRY_CLIP_RETENTION_HOURS` (default `72`), `SENTRY_EVENT_RETENTION_DAYS` (default `90`).
+**Key env vars:** `SENTRY_DATA_DIR` (default `./data`), `SENTRY_DB_PATH`, `PORT` (default `9305`), `FACE_SERVICE_URL` (default `http://127.0.0.1:9306`), `JWT_SECRET`, `SENTRY_CLIP_RETENTION_HOURS` (default `72`), `SENTRY_EVENT_RETENTION_DAYS` (default `90`).
 
 **Default credentials on first run:** `admin` / `sentry123`
 
@@ -111,7 +111,7 @@ go vet ./...
 
 ## Face Service (Python)
 
-**Key env vars:** `FACE_SERVICE_HOST`, `FACE_SERVICE_PORT` (default `8090`), `FACE_SERVICE_DATA_DIR`, `FACE_SERVICE_MODEL` (default `buffalo_l`), `FACE_SERVICE_MATCH_THRESHOLD` (default `0.42`, enrollment only), `FACE_SERVICE_ACQUIRE_THRESHOLD` (default `0.45`), `FACE_SERVICE_KEEP_THRESHOLD` (default `0.35`), `FACE_SERVICE_PROVIDERS` (comma-separated ORT providers), `FACE_SERVICE_RELAY_URL` (default `ws://127.0.0.1:8080`).
+**Key env vars:** `FACE_SERVICE_HOST`, `FACE_SERVICE_PORT` (default `9306`), `FACE_SERVICE_DATA_DIR`, `FACE_SERVICE_MODEL` (default `buffalo_l`), `FACE_SERVICE_MATCH_THRESHOLD` (default `0.42`, enrollment only), `FACE_SERVICE_ACQUIRE_THRESHOLD` (default `0.45`), `FACE_SERVICE_KEEP_THRESHOLD` (default `0.35`), `FACE_SERVICE_PROVIDERS` (comma-separated ORT providers), `FACE_SERVICE_RELAY_URL` (default `ws://127.0.0.1:9305`).
 
 **Architecture:**
 - `server.py` — aiohttp app factory. Routes for persons CRUD, photo upload (multipart), and a per-camera detection WebSocket at `/cameras/{id}/ws`.

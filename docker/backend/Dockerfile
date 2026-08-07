@@ -22,11 +22,11 @@ COPY --from=builder /app/backend ./backend
 
 RUN mkdir -p /tmp/sentry/streams data
 
-EXPOSE 8080
-ENV PORT=8080 \
+EXPOSE 9305
+ENV PORT=9305 \
     SENTRY_DATA_DIR=/app/data
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s \
-    CMD wget -qO- http://localhost:8080/health || exit 1
+    CMD wget -qO- http://localhost:9305/health || exit 1
 
 CMD ["./backend"]

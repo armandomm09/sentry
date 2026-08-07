@@ -39,7 +39,7 @@ class Config:
     idle_fps: float           # fps when no viewer is attached
     active_fps: float         # fps when a viewer is watching
     frame_width: int          # target decode width for face inference (frames are JPEG-decoded)
-    relay_url: str            # base ws:// URL of the Go relay (e.g. ws://127.0.0.1:8080)
+    relay_url: str            # base ws:// URL of the Go relay (e.g. ws://127.0.0.1:9305)
     providers: tuple[str, ...]
     track_min_iou: float
     track_min_hits: int
@@ -73,7 +73,7 @@ class Config:
             )
         return Config(
             host=_env("FACE_SERVICE_HOST", "127.0.0.1"),
-            port=_env_int("FACE_SERVICE_PORT", 8090),
+            port=_env_int("FACE_SERVICE_PORT", 9306),
             data_dir=data_dir,
             db_path=data_dir / "face.db",
             photos_dir=data_dir / "photos",
@@ -83,7 +83,7 @@ class Config:
             idle_fps=_env_float("FACE_SERVICE_IDLE_FPS", 2.0),
             active_fps=_env_float("FACE_SERVICE_ACTIVE_FPS", 8.0),
             frame_width=_env_int("FACE_SERVICE_FRAME_WIDTH", 1024),
-            relay_url=_env("FACE_SERVICE_RELAY_URL", "ws://127.0.0.1:8080"),
+            relay_url=_env("FACE_SERVICE_RELAY_URL", "ws://127.0.0.1:9305"),
             providers=providers,
             track_min_iou=_env_float("FACE_SERVICE_TRACK_MIN_IOU", 0.3),
             track_min_hits=_env_int("FACE_SERVICE_TRACK_MIN_HITS", 3),

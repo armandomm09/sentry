@@ -25,8 +25,8 @@ import (
 func main() {
 	dataDir := envOr("SENTRY_DATA_DIR", "./data")
 	dbPath := envOr("SENTRY_DB_PATH", "./data/sentry.db")
-	port := envOr("PORT", "8080")
-	faceURL := envOr("FACE_SERVICE_URL", "http://127.0.0.1:8090")
+	port := envOr("PORT", "9305")
+	faceURL := envOr("FACE_SERVICE_URL", "http://127.0.0.1:9306")
 
 	// SQLite database
 	database, err := db.Open(dbPath)

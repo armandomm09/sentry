@@ -84,8 +84,8 @@ PIDS+=($!)
 
 echo ""
 echo "  Frontend   → http://localhost:5173  (Vite HMR)"
-echo "  Backend    → http://localhost:8080  (air live reload)"
-echo "  Face API   → http://localhost:8090  (watchmedo restart on .py save)"
+echo "  Backend    → http://localhost:9305  (air live reload)"
+echo "  Face API   → http://localhost:9306  (watchmedo restart on .py save)"
 echo ""
 echo "  Mobile     → cd mobile && npx expo start"
 echo ""

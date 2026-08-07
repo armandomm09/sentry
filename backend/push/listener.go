@@ -30,7 +30,7 @@ type Sender interface {
 }
 
 type Listener struct {
-	faceBaseURL string // e.g. "http://127.0.0.1:8090"
+	faceBaseURL string // e.g. "http://127.0.0.1:9306"
 	notifier    Sender
 	store       CameraNameStore
 	mu          sync.Mutex
