@@ -105,7 +105,7 @@ go vet ./...
 - `face/` — `client.go` calls the Python face-service REST API; `proxy.go` reverse-proxies `/api/persons/*` and `/api/augmentation/*` to it and `/face/cameras/{id}/ws` (detection WebSocket) to the face-service's `/cameras/{id}/ws`. `SyncFromStore` + `RunSyncLoop` keep face-service's camera list in sync with `cameras.json`.
 - `push/` — `listener.go` subscribes to the face-service detection WebSocket per camera and emits one notification per sighting event on `track_confirmed` (per-frame `detections` never notify); `notifier.go` evaluates each subscription's notification policy — `every` (default), `quiet_period` (suppress if the person was seen less than `known_quiet_hours`/`unknown_quiet_hours` ago; per person across cameras for knowns, per camera for unknowns), `first_of_day` (first sighting per local calendar day) — reading last-seen state from the events table, then sends batched push via the Expo Push API with `event_id` in the payload. Policy is configured per subscription via `POST /api/push/register` (`notify_known_mode`, `notify_unknown_mode`, `known_quiet_hours`, `unknown_quiet_hours`).
 - `events/` — sighting events. `recorder.go` consumes track lifecycle messages (`track_confirmed`/`track_updated`/`track_ended`) dispatched by `push/listener.go`, persisting one event per confirmed track with a best-face thumbnail (`data/thumbs/`). `clips.go` copies live HLS segments from confirm time (pre-roll ≈ 10s) until track end + 5s and stitches them losslessly into `data/clips/<event_id>.mp4` (cap 2 min). `retention.go` expires clips after `SENTRY_CLIP_RETENTION_HOURS` and deletes event rows + thumbs after `SENTRY_EVENT_RETENTION_DAYS`. REST surface: `/api/events` (list/detail/thumb/clip/label — labeling enrolls the crop via the face-service and retro-labels matching unknowns).
-- `storage/json_store.go` — camera config persisted to `data/cameras.json`. Cameras have an optional `snapshot_url` (HTTP JPEG endpoint) used by the frontend's per-camera snapshot preview (`CameraSnapshot.tsx`) without starting a full HLS stream.
+- `storage/json_store.go` — camera config persisted to `data/cameras.json`. Cameras have an optional `snapshot_url` (HTTP JPEG endpoint) used for per-camera still previews without starting a full HLS stream. The web frontend fetches `snapshot_url` directly (it runs on the same network as the cameras); the mobile app cannot, so `handlers/snapshot.go` exposes `GET /api/cameras/:id/snapshot`, which fetches the camera-side URL from inside the private network and relays the JPEG over the authenticated API connection.
 - `db/db.go` — SQLite (`modernc.org/sqlite`) for users and push subscriptions.
 - HLS segments are served statically at `/hls` → `/tmp/sentry/streams/`.
 
@@ -181,11 +181,23 @@ Build profiles live in `mobile/eas.json` (`development` = dev client / internal,
 
 ## Testing
 
-**Backend:**
+**Backend (Go):**
 ```bash
-cd backend && go test ./...
+cd backend
+go test ./...                          # all packages
+go test ./push/                        # one package
+go test ./push/ -run TestEvaluate -v   # one test
 ```
-Note: there are currently no `*_test.go` files, so this is a no-op until tests are added.
+Tested packages: `db`, `events`, `face`, `handlers`, `push`. `db` tests use real temp-file SQLite; `push`/`face` tests use `httptest` servers instead of hitting Expo or the face-service.
+
+**Face service (pytest):**
+```bash
+cd face-service
+.venv/bin/python -m pytest tests -q               # all
+.venv/bin/python -m pytest tests/test_tracker.py  # one file
+.venv/bin/python -m pytest tests -k lifecycle     # by name
+```
+No `pyproject.toml`/`pytest.ini` — run pytest from `face-service/` so `tests/` resolves. `test_augmentation_integration.py` and `test_recognizer.py` load the real InsightFace model and are slower.
 
 **Face service — manual end-to-end (webcam, no Go backend needed):**
 ```bash
@@ -211,3 +223,9 @@ Add the resulting URL as a camera in Sentry to exercise the full pipeline.
 4. Go `push/Listener` subscribes to face-service WebSocket per camera
 5. On `track_confirmed`: `push/Notifier` evaluates each subscription's notification policy (every / quiet_period / first_of_day) against the events table, looks up Expo push tokens from SQLite, and sends batched push via `https://exp.host/push/send` with `event_id` in the payload
 6. Mobile app receives Expo push notification; foreground banner rendered in `App.tsx`
+
+## Design Docs
+
+Feature work is planned before it is written. `docs/superpowers/specs/` holds design docs and `docs/superpowers/plans/` holds phased implementation plans (dated, e.g. `2026-07-20-notification-policy.md`). When touching events, clips, notification policy, face-recognition robustness, or Docker, read the matching plan first — it records the decisions and the invariants the code is enforcing.
+
+`RUNNING.md` is the full operator guide (prerequisites, GPU setup, Docker, mobile device setup); this file covers only what's needed to develop.

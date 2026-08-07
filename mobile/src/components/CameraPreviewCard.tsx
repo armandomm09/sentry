@@ -32,7 +32,7 @@ export default function CameraPreviewCard({ camera, streamStatus, onPress }: Pro
     <Pressable onPress={onPress} onPressIn={handlePressIn} onPressOut={handlePressOut}>
       <Animated.View style={[styles.card, animatedStyle]}>
         <View style={styles.preview}>
-          <CameraSnapshot url={camera.snapshot_url} />
+          <CameraSnapshot cameraId={camera.id} />
           <View style={styles.statusOverlay}>
             {isLive ? (
               <PulsingBadge />

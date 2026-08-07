@@ -161,6 +161,7 @@ func main() {
 				cameras.GET("/:id", cameraH.Get)
 				cameras.PUT("/:id", cameraH.Update)
 				cameras.DELETE("/:id", cameraH.Delete)
+				cameras.GET("/:id/snapshot", cameraH.Snapshot)
 				cameras.POST("/:id/stream/start", cameraH.StreamStart)
 				cameras.POST("/:id/stream/stop", cameraH.StreamStop)
 				cameras.GET("/:id/stream/status", cameraH.StreamStatus)
