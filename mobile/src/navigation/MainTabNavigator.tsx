@@ -3,13 +3,19 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 
-import type { MainTabParamList, HomeStackParamList, PersonsStackParamList } from './types'
+import type {
+  MainTabParamList,
+  HomeStackParamList,
+  PersonsStackParamList,
+  AlertsStackParamList,
+} from './types'
 import tokens from '../theme/tokens'
 
 import HomeScreen from '../screens/HomeScreen'
 import CameraDetailScreen from '../screens/CameraDetailScreen'
 import CameraFormScreen from '../screens/CameraFormScreen'
 import AlertsScreen, { alertsUnreadCountRef } from '../screens/AlertsScreen'
+import EventDetailScreen from '../screens/EventDetailScreen'
 import PersonsScreen from '../screens/PersonsScreen'
 import PersonDetailScreen from '../screens/PersonDetailScreen'
 import SettingsScreen from '../screens/SettingsScreen'
@@ -40,6 +46,28 @@ function HomeStackNavigator(): React.JSX.Element {
         options={{ title: 'Add camera', presentation: 'modal' }}
       />
     </HomeStack.Navigator>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Alerts Stack
+// ---------------------------------------------------------------------------
+const AlertsStack = createNativeStackNavigator<AlertsStackParamList>()
+
+function AlertsStackNavigator(): React.JSX.Element {
+  return (
+    <AlertsStack.Navigator screenOptions={stackScreenOptions}>
+      <AlertsStack.Screen
+        name="AlertsScreen"
+        component={AlertsScreen}
+        options={{ title: 'Alerts' }}
+      />
+      <AlertsStack.Screen
+        name="EventDetailScreen"
+        component={EventDetailScreen}
+        options={{ title: 'Sighting' }}
+      />
+    </AlertsStack.Navigator>
   )
 }
 
@@ -108,9 +136,9 @@ export default function MainTabNavigator(): React.JSX.Element {
       />
       <Tab.Screen
         name="Alerts"
-        component={AlertsScreen}
+        component={AlertsStackNavigator}
         options={{
-          title: 'Alerts',
+          headerShown: false,
           tabBarAccessibilityLabel: 'Alerts',
           tabBarBadge: alertsUnread > 0 ? alertsUnread : undefined,
           tabBarBadgeStyle: { backgroundColor: tokens.colors.primary, fontSize: 10 },

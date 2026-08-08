@@ -355,3 +355,8 @@ export async function getEvents(
 export function eventThumbUrl(baseUrl: string, eventId: string): string {
   return `${baseUrl}/api/events/${encodeURIComponent(eventId)}/thumb`
 }
+
+/** URL of an event's recorded clip. Needs an Authorization header to fetch. */
+export function eventClipUrl(baseUrl: string, eventId: string): string {
+  return `${baseUrl}/api/events/${encodeURIComponent(eventId)}/clip`
+}

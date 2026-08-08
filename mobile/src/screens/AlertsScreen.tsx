@@ -9,7 +9,9 @@ import {
 } from 'react-native'
 import { useFocusEffect, useIsFocused } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
+import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 
+import type { AlertsStackParamList } from '../navigation/types'
 import { getCameras, getEvents, type Camera, type SentryEvent } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import EventRow from '../components/EventRow'
@@ -92,7 +94,9 @@ function FilterBar({ value, onChange }: { value: Filter; onChange: (f: Filter) =
 // ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
-export default function AlertsScreen(): React.JSX.Element {
+type Props = NativeStackScreenProps<AlertsStackParamList, 'AlertsScreen'>
+
+export default function AlertsScreen({ navigation }: Props): React.JSX.Element {
   const { baseUrl, token } = useAuth()
   const isFocused = useIsFocused()
 
@@ -197,13 +201,19 @@ export default function AlertsScreen(): React.JSX.Element {
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
-  const renderItem = useCallback(({ item }: { item: SentryEvent }) => (
-    <EventRow
-      event={item}
-      cameraName={cameraNames[item.camera_id] ?? 'Unknown camera'}
-      baseUrl={baseUrl ?? ''}
-    />
-  ), [cameraNames, baseUrl])
+  const renderItem = useCallback(({ item }: { item: SentryEvent }) => {
+    const cameraName = cameraNames[item.camera_id] ?? 'Unknown camera'
+    return (
+      <EventRow
+        event={item}
+        cameraName={cameraName}
+        baseUrl={baseUrl ?? ''}
+        onPress={() => {
+          navigation.navigate('EventDetailScreen', { event: item, cameraName })
+        }}
+      />
+    )
+  }, [cameraNames, baseUrl, navigation])
 
   if (loading) {
     return (

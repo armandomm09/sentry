@@ -1,6 +1,6 @@
 import type { NavigatorScreenParams } from '@react-navigation/native'
 
-import type { Camera } from '../api/client'
+import type { Camera, SentryEvent } from '../api/client'
 
 // ---------------------------------------------------------------------------
 // Home Stack
@@ -10,6 +10,15 @@ export type HomeStackParamList = {
   CameraDetailScreen: { cameraId: string; cameraName: string }
   /** Omit `camera` to add a new one; pass it to edit that camera. */
   CameraFormScreen: { camera?: Camera } | undefined
+}
+
+// ---------------------------------------------------------------------------
+// Alerts Stack
+// ---------------------------------------------------------------------------
+export type AlertsStackParamList = {
+  AlertsScreen: undefined
+  /** The event travels with the route so the detail view needs no refetch. */
+  EventDetailScreen: { event: SentryEvent; cameraName: string }
 }
 
 // ---------------------------------------------------------------------------
@@ -25,7 +34,7 @@ export type PersonsStackParamList = {
 // ---------------------------------------------------------------------------
 export type MainTabParamList = {
   Home: NavigatorScreenParams<HomeStackParamList>
-  Alerts: undefined
+  Alerts: NavigatorScreenParams<AlertsStackParamList>
   Persons: NavigatorScreenParams<PersonsStackParamList>
   Settings: undefined
 }

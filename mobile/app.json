@@ -43,7 +43,8 @@
         {
           "photosPermission": "Sentry uses your photo library so you can enroll photos of people you want the cameras to recognize."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "extra": {
       "eas": {
