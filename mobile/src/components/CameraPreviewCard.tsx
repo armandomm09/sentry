@@ -15,9 +15,10 @@ type Props = {
   camera: Camera
   streamStatus: StreamStatus | undefined
   onPress: () => void
+  onLongPress?: () => void
 }
 
-export default function CameraPreviewCard({ camera, streamStatus, onPress }: Props): React.JSX.Element {
+export default function CameraPreviewCard({ camera, streamStatus, onPress, onLongPress }: Props): React.JSX.Element {
   const scale = useSharedValue(1)
   const isLive = streamStatus?.status === 'live'
 
@@ -29,7 +30,7 @@ export default function CameraPreviewCard({ camera, streamStatus, onPress }: Pro
   const handlePressOut = useCallback(() => { scale.value = withSpring(1) }, [scale])
 
   return (
-    <Pressable onPress={onPress} onPressIn={handlePressIn} onPressOut={handlePressOut}>
+    <Pressable onPress={onPress} onLongPress={onLongPress} onPressIn={handlePressIn} onPressOut={handlePressOut}>
       <Animated.View style={[styles.card, animatedStyle]}>
         <View style={styles.preview}>
           <CameraSnapshot cameraId={camera.id} />

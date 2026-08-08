@@ -161,7 +161,9 @@ npx tsc --noEmit        # typecheck (no lint/test scripts exist for mobile)
 
 **Stack:** Expo 56, React Native 0.85.3, React Navigation (bottom tabs + native stack), `expo-notifications` for push, `expo-secure-store` for token persistence.
 
-**Structure:** `src/context/AuthContext.tsx` manages auth state, `src/navigation/AppNavigator.tsx` is the root navigator, `src/screens/` for screen components, `src/theme/tokens.ts` for design tokens.
+**Structure:** `src/context/AuthContext.tsx` manages auth state, `src/navigation/AppNavigator.tsx` is the root navigator, `src/screens/` for screen components, `src/theme/tokens.ts` for design tokens. Home and Persons are native stacks inside the tab navigator (camera form / person detail push onto them); Alerts and Settings are plain tabs.
+
+The app has the dashboard's management surface: camera CRUD (`CameraFormScreen`, reached via the Home `+` button or long-pressing a camera), stream start/stop (`CameraDetailScreen`), and person CRUD with photo enrollment from the camera roll (`PersonsScreen` → `PersonDetailScreen`, using `expo-image-picker`; uploads go out as multipart `{ uri, name, type }` parts, which RN streams from disk). It also has an alerts history backed by `/api/events` with cursor pagination — the web dashboard has no events UI at all, so that surface is mobile-only. Not ported from the dashboard: augmentation settings and user management.
 
 Push tokens are registered with the backend (`POST /api/push/register`) with per-subscription preferences for known/unknown person notifications and per-camera filtering.
 

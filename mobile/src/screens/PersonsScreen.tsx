@@ -16,9 +16,16 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
-import { getPersons, Person } from '../api/client'
+import { useFocusEffect } from '@react-navigation/native'
+import type { NativeStackScreenProps } from '@react-navigation/native-stack'
+
+import type { PersonsStackParamList } from '../navigation/types'
+import { createPerson, getPersons, Person } from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import TextPromptModal from '../components/TextPromptModal'
 import tokens from '../theme/tokens'
+
+type Props = NativeStackScreenProps<PersonsStackParamList, 'PersonsScreen'>
 
 // ---------------------------------------------------------------------------
 // Skeleton row
@@ -61,16 +68,13 @@ function getInitials(name: string): string {
 interface PersonRowProps {
   person: Person
   isLast: boolean
+  onPress: () => void
 }
 
-function PersonRow({ person, isLast }: PersonRowProps): React.JSX.Element {
-  function handlePress(): void {
-    Alert.alert('', 'Manage persons on the web dashboard')
-  }
-
+function PersonRow({ person, isLast, onPress }: PersonRowProps): React.JSX.Element {
   return (
     <>
-      <TouchableOpacity style={styles.row} onPress={handlePress} activeOpacity={0.7}>
+      <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.7}>
         <View style={styles.avatar}>
           <Text style={styles.initials}>{getInitials(person.name)}</Text>
         </View>
@@ -100,7 +104,7 @@ function EmptyState({ hasQuery }: EmptyStateProps): React.JSX.Element {
       <Ionicons name="people-outline" size={48} color={tokens.colors.textMuted} />
       <Text style={styles.emptyTitle}>No persons enrolled</Text>
       {!hasQuery && (
-        <Text style={styles.emptySubtitle}>Enroll persons from the web dashboard</Text>
+        <Text style={styles.emptySubtitle}>Tap + to enroll someone</Text>
       )}
     </View>
   )
@@ -109,13 +113,15 @@ function EmptyState({ hasQuery }: EmptyStateProps): React.JSX.Element {
 // ---------------------------------------------------------------------------
 // Main screen
 // ---------------------------------------------------------------------------
-export default function PersonsScreen(): React.JSX.Element {
+export default function PersonsScreen({ navigation }: Props): React.JSX.Element {
   const { baseUrl, token } = useAuth()
 
   const [persons, setPersons] = useState<Person[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [query, setQuery] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [creating, setCreating] = useState(false)
 
   const fetchPersons = useCallback(
     async (isRefresh = false): Promise<void> => {
@@ -143,6 +149,35 @@ export default function PersonsScreen(): React.JSX.Element {
   useEffect(() => {
     void fetchPersons()
   }, [fetchPersons])
+
+  // Photo counts and deletions happen on the detail screen; refresh on return
+  // so the list reflects them without a manual pull.
+  useFocusEffect(
+    useCallback(() => {
+      void fetchPersons(true)
+    }, [fetchPersons]),
+  )
+
+  const handleCreate = useCallback((name: string): void => {
+    if (!baseUrl || !token) return
+    setCreating(true)
+    void (async () => {
+      try {
+        const person = await createPerson(baseUrl, token, name)
+        setAdding(false)
+        await fetchPersons(true)
+        // Land on the detail screen — a person without photos does nothing yet.
+        navigation.navigate('PersonDetailScreen', {
+          personId: person.id,
+          personName: person.name,
+        })
+      } catch (err) {
+        Alert.alert('Could not add person', err instanceof Error ? err.message : 'Request failed')
+      } finally {
+        setCreating(false)
+      }
+    })()
+  }, [baseUrl, token, fetchPersons, navigation])
 
   const filtered = persons.filter(p =>
     p.name.toLowerCase().includes(query.toLowerCase()),
@@ -181,11 +216,36 @@ export default function PersonsScreen(): React.JSX.Element {
             <PersonRow
               person={item}
               isLast={index === filtered.length - 1}
+              onPress={() => {
+                navigation.navigate('PersonDetailScreen', {
+                  personId: item.id,
+                  personName: item.name,
+                })
+              }}
             />
           )}
           ListEmptyComponent={<EmptyState hasQuery={query.length > 0} />}
         />
       )}
+
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => { setAdding(true) }}
+        activeOpacity={0.85}
+        accessibilityLabel="Add person"
+      >
+        <Ionicons name="add" size={28} color={tokens.colors.text} />
+      </TouchableOpacity>
+
+      <TextPromptModal
+        visible={adding}
+        title="Add person"
+        placeholder="Full name"
+        confirmLabel="Add"
+        submitting={creating}
+        onCancel={() => { setAdding(false) }}
+        onSubmit={handleCreate}
+      />
     </View>
   )
 }
@@ -284,5 +344,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: tokens.colors.textMuted,
     marginTop: 8,
+  },
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: tokens.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
   },
 })

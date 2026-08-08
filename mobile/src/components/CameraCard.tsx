@@ -15,9 +15,10 @@ type Props = {
   camera: Camera
   streamStatus: StreamStatus | undefined
   onPress: () => void
+  onLongPress?: () => void
 }
 
-export default function CameraCard({ camera, streamStatus, onPress }: Props): React.JSX.Element {
+export default function CameraCard({ camera, streamStatus, onPress, onLongPress }: Props): React.JSX.Element {
   const scale = useSharedValue(1)
   const isLive = streamStatus?.status === 'live'
 
@@ -34,7 +35,7 @@ export default function CameraCard({ camera, streamStatus, onPress }: Props): Re
   }, [scale])
 
   return (
-    <Pressable onPress={onPress} onPressIn={handlePressIn} onPressOut={handlePressOut}>
+    <Pressable onPress={onPress} onLongPress={onLongPress} onPressIn={handlePressIn} onPressOut={handlePressOut}>
       <Animated.View style={[styles.card, animatedStyle]}>
         <View style={styles.row}>
           <Ionicons

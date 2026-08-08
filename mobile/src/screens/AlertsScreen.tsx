@@ -1,149 +1,256 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { SectionList, StyleSheet, Text, View } from 'react-native'
-import { useIsFocused } from '@react-navigation/native'
+import {
+  ActivityIndicator,
+  Pressable,
+  SectionList,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native'
+import { useFocusEffect, useIsFocused } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
 
-import { getCameras, type Camera } from '../api/client'
+import { getCameras, getEvents, type Camera, type SentryEvent } from '../api/client'
 import { useAuth } from '../context/AuthContext'
-import { useDetections, type Detection } from '../hooks/useDetections'
-import DetectionCard from '../components/DetectionCard'
+import EventRow from '../components/EventRow'
 import tokens from '../theme/tokens'
 
 // ---------------------------------------------------------------------------
-// Module-level ref for tab navigator badge wiring (Task 11)
+// Module-level ref for tab navigator badge wiring
 // ---------------------------------------------------------------------------
 export const alertsUnreadCountRef: {
   current: number
   onChange: ((n: number) => void) | null
 } = { current: 0, onChange: null }
 
-// ---------------------------------------------------------------------------
-// Grouping helpers
-// ---------------------------------------------------------------------------
+const PAGE_SIZE = 50
+
+type Filter = 'all' | 'unknown'
+
 type Section = {
   title: string
-  data: Detection[]
+  data: SentryEvent[]
 }
 
-const FIVE_MINUTES_MS = 5 * 60 * 1000
-
-function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+// ---------------------------------------------------------------------------
+// Grouping — sightings bucketed by local calendar day
+// ---------------------------------------------------------------------------
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
 }
 
-function buildSections(detections: Detection[]): Section[] {
-  const now = new Date()
-  const todayStart = startOfDay(now).getTime()
-  const yesterdayStart = todayStart - 86400000
+function dayLabel(epochSeconds: number): string {
+  const ts = epochSeconds * 1000
+  const today = startOfDay(new Date())
+  const yesterday = today - 86400000
 
-  const justNow: Detection[] = []
-  const today: Detection[] = []
-  const yesterday: Detection[] = []
+  if (ts >= today) return 'Today'
+  if (ts >= yesterday) return 'Yesterday'
+  return new Date(ts).toLocaleDateString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
+}
 
-  for (const d of detections) {
-    const ts = new Date(d.ts).getTime()
-    const age = now.getTime() - ts
-    if (age < FIVE_MINUTES_MS) {
-      justNow.push(d)
-    } else if (ts >= todayStart) {
-      today.push(d)
-    } else if (ts >= yesterdayStart) {
-      yesterday.push(d)
-    }
-    // older than yesterday — dropped by the 100-cap already
-  }
-
+function buildSections(events: SentryEvent[]): Section[] {
   const sections: Section[] = []
-  if (justNow.length > 0) sections.push({ title: 'Just Now', data: justNow })
-  if (today.length > 0) sections.push({ title: 'Today', data: today })
-  if (yesterday.length > 0) sections.push({ title: 'Yesterday', data: yesterday })
+  for (const e of events) {
+    const label = dayLabel(e.started_at)
+    const last = sections[sections.length - 1]
+    // The API returns newest-first, so same-day events arrive consecutively.
+    if (last && last.title === label) last.data.push(e)
+    else sections.push({ title: label, data: [e] })
+  }
   return sections
 }
 
 // ---------------------------------------------------------------------------
-// Component
+// Filter chips
+// ---------------------------------------------------------------------------
+function FilterBar({ value, onChange }: { value: Filter; onChange: (f: Filter) => void }): React.JSX.Element {
+  return (
+    <View style={styles.filterBar}>
+      {(['all', 'unknown'] as const).map((f) => {
+        const active = value === f
+        return (
+          <Pressable
+            key={f}
+            onPress={() => { onChange(f) }}
+            style={[styles.chip, active && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, active && styles.chipTextActive]}>
+              {f === 'all' ? 'All' : 'Unknown only'}
+            </Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Screen
 // ---------------------------------------------------------------------------
 export default function AlertsScreen(): React.JSX.Element {
   const { baseUrl, token } = useAuth()
   const isFocused = useIsFocused()
 
-  // Camera fetch
   const [cameras, setCameras] = useState<Camera[]>([])
+  const [events, setEvents] = useState<SentryEvent[]>([])
+  const [filter, setFilter] = useState<Filter>('all')
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [nextBefore, setNextBefore] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const cameraNames = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const c of cameras) map[c.id] = c.name
+    return map
+  }, [cameras])
+
   useEffect(() => {
     if (!baseUrl || !token) return
-    getCameras(baseUrl, token)
-      .then(setCameras)
-      .catch(() => undefined)
+    getCameras(baseUrl, token).then(setCameras).catch(() => undefined)
   }, [baseUrl, token])
 
-  const cameraIds = useMemo(() => cameras.map((c) => c.id), [cameras])
+  // ---------------------------------------------------------------------------
+  // Loading
+  // ---------------------------------------------------------------------------
+  const loadFirstPage = useCallback(async (isRefresh = false): Promise<void> => {
+    if (!baseUrl || !token) return
+    if (isRefresh) setRefreshing(true)
+    try {
+      const page = await getEvents(baseUrl, token, {
+        limit: PAGE_SIZE,
+        unknownOnly: filter === 'unknown',
+      })
+      setEvents(page.events)
+      setNextBefore(page.next_before)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load alerts')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [baseUrl, token, filter])
 
-  // Detections across all cameras
-  const { detections } = useDetections(cameraIds, cameras)
+  const loadMore = useCallback(async (): Promise<void> => {
+    if (!baseUrl || !token || loadingMore || nextBefore === null) return
+    setLoadingMore(true)
+    try {
+      const page = await getEvents(baseUrl, token, {
+        limit: PAGE_SIZE,
+        before: nextBefore,
+        unknownOnly: filter === 'unknown',
+      })
+      // Guard against duplicates if a sighting lands exactly on the cursor.
+      setEvents((prev) => {
+        const seen = new Set(prev.map((e) => e.id))
+        return [...prev, ...page.events.filter((e) => !seen.has(e.id))]
+      })
+      setNextBefore(page.next_before)
+    } catch {
+      // Keep what is already listed; pull-to-refresh retries.
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [baseUrl, token, loadingMore, nextBefore, filter])
 
-  // Grouped sections
-  const sections = useMemo(() => buildSections(detections), [detections])
+  // Reload whenever the filter changes.
+  useEffect(() => {
+    setLoading(true)
+    void loadFirstPage()
+  }, [loadFirstPage])
+
+  // New sightings arrive as push notifications while the app is backgrounded,
+  // so refresh on focus rather than holding a socket open on this screen.
+  useFocusEffect(
+    useCallback(() => {
+      void loadFirstPage(true)
+    }, [loadFirstPage]),
+  )
 
   // ---------------------------------------------------------------------------
-  // Unread badge logic
+  // Unread badge — counts sightings that arrived while the tab was unfocused
   // ---------------------------------------------------------------------------
-  const lastSeenCount = useRef<number>(0)
+  const lastSeenTop = useRef<string | null>(null)
 
   useEffect(() => {
     if (isFocused) {
-      // User is viewing the screen — reset badge
+      lastSeenTop.current = events[0]?.id ?? null
       alertsUnreadCountRef.current = 0
       alertsUnreadCountRef.onChange?.(0)
-      lastSeenCount.current = detections.length
-    } else {
-      // Screen is not visible — compute unread delta
-      const unread = Math.max(0, detections.length - lastSeenCount.current)
-      alertsUnreadCountRef.current = unread
-      alertsUnreadCountRef.onChange?.(unread)
+      return
     }
-  }, [isFocused, detections.length])
+    const idx = events.findIndex((e) => e.id === lastSeenTop.current)
+    const unread = idx === -1 ? 0 : idx
+    alertsUnreadCountRef.current = unread
+    alertsUnreadCountRef.onChange?.(unread)
+  }, [isFocused, events])
+
+  const sections = useMemo(() => buildSections(events), [events])
 
   // ---------------------------------------------------------------------------
-  // Render helpers
+  // Render
   // ---------------------------------------------------------------------------
-  const renderSectionHeader = useCallback(
-    ({ section }: { section: Section }) => (
-      <Text style={styles.sectionHeader}>{section.title.toUpperCase()}</Text>
-    ),
-    [],
-  )
+  const renderItem = useCallback(({ item }: { item: SentryEvent }) => (
+    <EventRow
+      event={item}
+      cameraName={cameraNames[item.camera_id] ?? 'Unknown camera'}
+      baseUrl={baseUrl ?? ''}
+    />
+  ), [cameraNames, baseUrl])
 
-  const renderItem = useCallback(
-    ({ item }: { item: Detection }) => <DetectionCard detection={item} />,
-    [],
-  )
-
-  const keyExtractor = useCallback((item: Detection) => item.id, [])
-
-  const ListEmptyComponent = (
-    <View style={styles.emptyContainer}>
-      <Ionicons
-        name="notifications-off-outline"
-        size={48}
-        color={tokens.colors.textMuted}
-      />
-      <Text style={styles.emptyTitle}>No alerts yet</Text>
-      <Text style={styles.emptySubtitle}>
-        Detections will appear here in real time
-      </Text>
-    </View>
-  )
+  if (loading) {
+    return (
+      <View style={[styles.root, styles.centered]}>
+        <ActivityIndicator color={tokens.colors.primary} />
+      </View>
+    )
+  }
 
   return (
     <View style={styles.root}>
+      <FilterBar value={filter} onChange={setFilter} />
       <SectionList
         sections={sections}
-        keyExtractor={keyExtractor}
-        renderSectionHeader={renderSectionHeader}
+        keyExtractor={(item) => item.id}
         renderItem={renderItem}
+        renderSectionHeader={({ section }) => (
+          <Text style={styles.sectionHeader}>{section.title.toUpperCase()}</Text>
+        )}
         contentContainerStyle={styles.listContent}
-        ListEmptyComponent={ListEmptyComponent}
         stickySectionHeadersEnabled={false}
+        refreshing={refreshing}
+        onRefresh={() => { void loadFirstPage(true) }}
+        onEndReached={() => { void loadMore() }}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          loadingMore ? (
+            <ActivityIndicator style={styles.footerSpinner} color={tokens.colors.textMuted} />
+          ) : null
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons
+              name={error ? 'cloud-offline-outline' : 'notifications-off-outline'}
+              size={48}
+              color={tokens.colors.textMuted}
+            />
+            <Text style={styles.emptyTitle}>{error ?? 'No alerts yet'}</Text>
+            <Text style={styles.emptySubtitle}>
+              {error
+                ? 'Pull down to try again'
+                : filter === 'unknown'
+                  ? 'No unrecognized faces have been seen'
+                  : 'Sightings from your cameras will appear here'}
+            </Text>
+          </View>
+        }
       />
     </View>
   )
@@ -157,8 +264,36 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: tokens.colors.bg,
   },
+  centered: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterBar: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: tokens.radii.full,
+    backgroundColor: tokens.colors.surface2,
+  },
+  chipActive: {
+    backgroundColor: tokens.colors.primary,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: tokens.colors.textMuted,
+  },
+  chipTextActive: {
+    color: tokens.colors.text,
+  },
   listContent: {
     flexGrow: 1,
+    paddingBottom: 24,
   },
   sectionHeader: {
     fontSize: 12,
@@ -167,6 +302,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     letterSpacing: 0.5,
+  },
+  footerSpinner: {
+    marginVertical: 16,
   },
   emptyContainer: {
     flex: 1,
@@ -179,6 +317,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: tokens.colors.text,
     marginTop: 16,
+    textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: 13,

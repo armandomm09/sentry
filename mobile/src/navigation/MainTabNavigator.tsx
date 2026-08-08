@@ -3,14 +3,22 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { Ionicons } from '@expo/vector-icons'
 
-import type { MainTabParamList, HomeStackParamList } from './types'
+import type { MainTabParamList, HomeStackParamList, PersonsStackParamList } from './types'
 import tokens from '../theme/tokens'
 
 import HomeScreen from '../screens/HomeScreen'
 import CameraDetailScreen from '../screens/CameraDetailScreen'
+import CameraFormScreen from '../screens/CameraFormScreen'
 import AlertsScreen, { alertsUnreadCountRef } from '../screens/AlertsScreen'
 import PersonsScreen from '../screens/PersonsScreen'
+import PersonDetailScreen from '../screens/PersonDetailScreen'
 import SettingsScreen from '../screens/SettingsScreen'
+
+const stackScreenOptions = {
+  headerStyle: { backgroundColor: tokens.colors.bg },
+  headerTintColor: tokens.colors.text,
+  headerShadowVisible: false,
+} as const
 
 // ---------------------------------------------------------------------------
 // Home Stack
@@ -19,20 +27,41 @@ const HomeStack = createNativeStackNavigator<HomeStackParamList>()
 
 function HomeStackNavigator(): React.JSX.Element {
   return (
-    <HomeStack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: tokens.colors.bg },
-        headerTintColor: tokens.colors.text,
-        headerShadowVisible: false,
-      }}
-    >
+    <HomeStack.Navigator screenOptions={stackScreenOptions}>
       <HomeStack.Screen name="HomeScreen" component={HomeScreen} options={{ title: 'Home' }} />
       <HomeStack.Screen
         name="CameraDetailScreen"
         component={CameraDetailScreen}
         options={{ title: 'Camera' }}
       />
+      <HomeStack.Screen
+        name="CameraFormScreen"
+        component={CameraFormScreen}
+        options={{ title: 'Add camera', presentation: 'modal' }}
+      />
     </HomeStack.Navigator>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Persons Stack
+// ---------------------------------------------------------------------------
+const PersonsStack = createNativeStackNavigator<PersonsStackParamList>()
+
+function PersonsStackNavigator(): React.JSX.Element {
+  return (
+    <PersonsStack.Navigator screenOptions={stackScreenOptions}>
+      <PersonsStack.Screen
+        name="PersonsScreen"
+        component={PersonsScreen}
+        options={{ title: 'Persons' }}
+      />
+      <PersonsStack.Screen
+        name="PersonDetailScreen"
+        component={PersonDetailScreen}
+        options={{ title: 'Person' }}
+      />
+    </PersonsStack.Navigator>
   )
 }
 
@@ -92,9 +121,9 @@ export default function MainTabNavigator(): React.JSX.Element {
       />
       <Tab.Screen
         name="Persons"
-        component={PersonsScreen}
+        component={PersonsStackNavigator}
         options={{
-          title: 'Persons',
+          headerShown: false,
           tabBarAccessibilityLabel: 'Persons',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="people" size={size ?? 24} color={color} />

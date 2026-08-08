@@ -37,7 +37,13 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Sentry uses your photo library so you can enroll photos of people you want the cameras to recognize."
+        }
+      ]
     ],
     "extra": {
       "eas": {

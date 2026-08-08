@@ -16,6 +16,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { Ionicons } from '@expo/vector-icons'
 import * as SecureStore from 'expo-secure-store'
+import { useFocusEffect } from '@react-navigation/native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 
 import type { HomeStackParamList } from '../navigation/types'
@@ -129,6 +130,13 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
     void fetchData().finally(() => { setLoading(false) })
   }, [fetchData])
 
+  // Adds, edits and deletes happen on the form screen; refresh on return.
+  useFocusEffect(
+    useCallback(() => {
+      void fetchData()
+    }, [fetchData]),
+  )
+
   const handleRefresh = useCallback(async (): Promise<void> => {
     setRefreshing(true)
     await fetchData()
@@ -145,6 +153,13 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
     [navigation],
   )
 
+  const handleCameraEdit = useCallback(
+    (camera: Camera) => {
+      navigation.navigate('CameraFormScreen', { camera })
+    },
+    [navigation],
+  )
+
   const renderItem = useCallback(
     ({ item }: { item: Camera }) => {
       const Card = viewMode === 'cards' ? CameraPreviewCard : CameraCard
@@ -153,10 +168,11 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
           camera={item}
           streamStatus={streams[item.id]}
           onPress={() => { handleCameraPress(item) }}
+          onLongPress={() => { handleCameraEdit(item) }}
         />
       )
     },
-    [streams, handleCameraPress, viewMode],
+    [streams, handleCameraPress, handleCameraEdit, viewMode],
   )
 
   const keyExtractor = useCallback((item: Camera) => item.id, [])
@@ -166,10 +182,20 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
       <View>
         <Text style={styles.title}>Sentry</Text>
         <Text style={styles.subtitle}>
-          {cameras.length} {cameras.length === 1 ? 'camera' : 'cameras'}
+          {cameras.length} {cameras.length === 1 ? 'camera' : 'cameras'} · long-press to edit
         </Text>
       </View>
-      <ViewToggle mode={viewMode} onChange={handleViewModeChange} />
+      <View style={styles.headerActions}>
+        <ViewToggle mode={viewMode} onChange={handleViewModeChange} />
+        <Pressable
+          style={styles.addBtn}
+          onPress={() => { navigation.navigate('CameraFormScreen') }}
+          hitSlop={6}
+          accessibilityLabel="Add camera"
+        >
+          <Ionicons name="add" size={22} color={tokens.colors.text} />
+        </Pressable>
+      </View>
     </View>
   )
 
@@ -219,7 +245,7 @@ export default function HomeScreen({ navigation }: Props): React.JSX.Element {
           <View style={styles.emptyState}>
             <Ionicons name="shield-outline" size={48} color={tokens.colors.textMuted} />
             <Text style={styles.emptyTitle}>No cameras configured</Text>
-            <Text style={styles.emptySubtitle}>Check your server connection</Text>
+            <Text style={styles.emptySubtitle}>Tap + to add your first camera</Text>
           </View>
         }
       />
@@ -244,6 +270,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingRight: 16,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  addBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: tokens.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   toggle: {
     flexDirection: 'row',
