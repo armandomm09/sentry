@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api/client'
 import { Button } from '../ui/Button'
-import { CameraSnapshot, deriveSnapshotUrl } from '../camera/CameraSnapshot'
+import { deriveSnapshotUrl } from '../camera/CameraSnapshot'
 
 interface Props {
   open: boolean
@@ -70,8 +70,6 @@ export function AddCameraModal({ open, onClose }: Props) {
     setTouched(true)
     setSnapshot(v)
   }
-
-  const previewable = /^https?:\/\//i.test(snapshotUrl.trim())
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -159,20 +157,8 @@ export function AddCameraModal({ open, onClose }: Props) {
             value={snapshotUrl}
             onChange={handleSnapshotChange}
             mono
-            hint="HTTP snapshot endpoint, auto-filled from the stream URL. Used for the still preview; edit if your camera differs."
+            hint="HTTP snapshot endpoint, auto-filled from the stream URL. Preview appears on the dashboard tile once the camera is saved."
           />
-
-          {previewable && (
-            <div
-              className="relative w-full overflow-hidden rounded-r1 border border-ink-border bg-ink-dark"
-              style={{ aspectRatio: '16/9' }}
-            >
-              <CameraSnapshot url={snapshotUrl.trim()} />
-              <div className="absolute bottom-1.5 left-1.5 font-mono text-[10px] text-white/75 bg-black/55 backdrop-blur-sm px-1.5 py-0.5 rounded-r1">
-                live preview
-              </div>
-            </div>
-          )}
 
           <div className="grid grid-cols-2 gap-3">
             <Field

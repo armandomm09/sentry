@@ -59,6 +59,18 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify({ face_recognition_enabled: enabled }),
       }),
+    // Cameras sit on a private network the browser can't route to (and
+    // snapshot_url often embeds credentials, which browsers refuse to load
+    // as a resource URL) — always go through the authenticated proxy.
+    fetchSnapshot: async (id: string): Promise<string> => {
+      const token = getToken()
+      const res = await fetch(`${BASE}/cameras/${id}/snapshot`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (res.status === 401) { handleUnauthorized(); throw new Error('Unauthorized') }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return URL.createObjectURL(await res.blob())
+    },
   },
   streams: {
     start: (id: string) => request<StreamInfo>(`/cameras/${id}/stream/start`, { method: 'POST' }),

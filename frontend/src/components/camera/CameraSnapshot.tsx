@@ -1,55 +1,80 @@
 import { useEffect, useRef, useState } from 'react'
+import { api } from '../../api/client'
 
 interface Props {
-  /** HTTP(S) snapshot URL. Empty/invalid renders nothing (caller shows fallback). */
-  url?: string
+  /** Camera whose still image to show. */
+  cameraId?: string
   /** Refresh interval in ms. */
   intervalMs?: number
   className?: string
-  /** Called when the image fails to load (e.g. bad URL / auth). */
+  /** Called when the image fails to load (e.g. camera unreachable / auth). */
   onError?: () => void
   /** Called on the first successful load. */
   onLoad?: () => void
 }
 
 /**
- * Renders a periodically-refreshed still image from a camera snapshot endpoint.
- * The snapshot URL returns a single JPEG, so we cache-bust with `?t=<tick>` and
- * bump the tick on an interval. While an error is active nothing is rendered so
- * the caller can fall back to its own placeholder visuals.
+ * Renders a periodically-refreshed still image from a camera, fetched
+ * through the backend's authenticated proxy (`GET /api/cameras/:id/snapshot`).
+ * Cameras sit on a private network the browser can't route to directly, and
+ * snapshot_url often embeds credentials, which browsers refuse to load as an
+ * <img> resource — so we always fetch via the API and render a blob URL.
  */
-export function CameraSnapshot({ url, intervalMs = 5000, className, onError, onLoad }: Props) {
-  const [tick, setTick] = useState(() => Date.now())
+export function CameraSnapshot({ cameraId, intervalMs = 5000, className, onError, onLoad }: Props) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [errored, setErrored] = useState(false)
-
-  // Reset error state whenever the URL changes so a corrected URL can recover.
-  useEffect(() => {
-    setErrored(false)
-    setTick(Date.now())
-  }, [url])
-
-  useEffect(() => {
-    if (!url) return
-    const id = setInterval(() => setTick(Date.now()), intervalMs)
-    return () => clearInterval(id)
-  }, [url, intervalMs])
-
   const onErrorRef = useRef(onError)
+  const onLoadRef = useRef(onLoad)
   onErrorRef.current = onError
+  onLoadRef.current = onLoad
 
-  if (!url || errored) return null
+  useEffect(() => {
+    if (!cameraId) return
+    setErrored(false)
 
-  const sep = url.includes('?') ? '&' : '?'
+    let cancelled = false
+    let currentUrl: string | null = null
+
+    const fetchOnce = async () => {
+      try {
+        const url = await api.cameras.fetchSnapshot(cameraId)
+        if (cancelled) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        const previous = currentUrl
+        currentUrl = url
+        setBlobUrl(url)
+        if (previous) URL.revokeObjectURL(previous)
+        onLoadRef.current?.()
+      } catch {
+        if (!cancelled) {
+          setErrored(true)
+          onErrorRef.current?.()
+        }
+      }
+    }
+
+    fetchOnce()
+    const id = setInterval(fetchOnce, intervalMs)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      if (currentUrl) URL.revokeObjectURL(currentUrl)
+    }
+  }, [cameraId, intervalMs])
+
+  if (!cameraId || errored || !blobUrl) return null
+
   return (
     <img
-      src={`${url}${sep}t=${tick}`}
+      src={blobUrl}
       alt=""
       className={className ?? 'absolute inset-0 w-full h-full object-cover'}
       onError={() => {
         setErrored(true)
         onErrorRef.current?.()
       }}
-      onLoad={() => onLoad?.()}
     />
   )
 }

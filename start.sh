@@ -84,9 +84,8 @@ fi
 docker compose $COMPOSE_FILES up $BUILD_FLAG -d
 
 echo ""
-echo "  Frontend   → http://localhost:5173"
-echo "  Backend    → http://localhost:9305"
-echo "  Face API   → http://localhost:9306"
+echo "  Frontend   → http://localhost:5174"
+echo "  Backend    → http://localhost:8081"
 echo ""
 echo "  Default login: admin / sentry123"
 echo "  Logs:  docker compose logs -f"

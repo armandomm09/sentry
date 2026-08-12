@@ -46,7 +46,7 @@ export function CameraTile({ camera, onOpen }: Props) {
       >
         {/* Snapshot preview (refreshes every 5s); falls back to gradient on error/empty */}
         {!isOffline && camera.snapshot_url && (
-          <CameraSnapshot url={camera.snapshot_url} />
+          <CameraSnapshot cameraId={camera.id} />
         )}
 
         {/* Scan line */}

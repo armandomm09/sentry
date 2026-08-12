@@ -3,12 +3,30 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/dim/sentry/backend/models"
 	"github.com/dim/sentry/backend/storage"
 	"github.com/gin-gonic/gin"
 )
+
+// parseDigestHeader parses `key="value"` (and unquoted) pairs out of a
+// `Digest ...` Authorization header value.
+func parseDigestHeader(t *testing.T, header string) map[string]string {
+	t.Helper()
+	header = strings.TrimPrefix(header, "Digest ")
+	out := map[string]string{}
+	for _, part := range strings.Split(header, ",") {
+		part = strings.TrimSpace(part)
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		out[kv[0]] = strings.Trim(kv[1], `"`)
+	}
+	return out
+}
 
 // setupSnapshot builds a router with a single camera whose snapshot_url is
 // whatever the test needs (usually an httptest server standing in for the
@@ -112,5 +130,52 @@ func TestSnapshotUpstreamError(t *testing.T) {
 
 	if w := doSnapshot(setupSnapshot(t, cam.URL), "cam1"); w.Code != http.StatusBadGateway {
 		t.Errorf("status = %d, want 502", w.Code)
+	}
+}
+
+// TestSnapshotDigestAuth simulates a Hikvision-style camera that rejects
+// Basic auth and challenges with WWW-Authenticate: Digest. The proxy must
+// complete the digest handshake itself — the stdlib http.Client has no
+// built-in digest support.
+func TestSnapshotDigestAuth(t *testing.T) {
+	const user, pass = "admin", "D1macm1l2026"
+	body := []byte{0xFF, 0xD8, 0xFF, 0xE0}
+	const nonce = "616363623a66306136643637643a6700ff33e9734f4083dcd52512e5e16e"
+	const realm = "IP Camera(FV050)"
+
+	cam := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth == "" || !strings.HasPrefix(auth, "Digest ") {
+			w.Header().Set("WWW-Authenticate", `Digest qop="auth", realm="`+realm+`", nonce="`+nonce+`", stale="FALSE"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		params := parseDigestHeader(t, auth)
+		if params["username"] != user {
+			t.Errorf("digest username = %q, want %q", params["username"], user)
+		}
+		ha1 := md5Hex(user + ":" + realm + ":" + pass)
+		ha2 := md5Hex(r.Method + ":" + params["uri"])
+		want := md5Hex(ha1 + ":" + nonce + ":" + params["nc"] + ":" + params["cnonce"] + ":" + params["qop"] + ":" + ha2)
+		if params["response"] != want {
+			t.Errorf("digest response = %q, want %q", params["response"], want)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write(body)
+	}))
+	defer cam.Close()
+
+	camURL := strings.Replace(cam.URL, "http://", "http://"+user+":"+pass+"@", 1) + "/ISAPI/Streaming/channels/101/picture"
+	w := doSnapshot(setupSnapshot(t, camURL), "cam1")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", w.Code, w.Body.String())
+	}
+	if got := w.Body.Bytes(); string(got) != string(body) {
+		t.Errorf("body = %v, want %v", got, body)
 	}
 }
