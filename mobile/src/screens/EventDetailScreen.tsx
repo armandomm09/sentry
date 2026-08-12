@@ -13,15 +13,16 @@ import tokens from '../theme/tokens'
 
 type Props = NativeStackScreenProps<AlertsStackParamList, 'EventDetailScreen'>
 
+/** Both timestamps are epoch milliseconds — the recorder stores `toMs(ts)`. */
 function formatRange(startedAt: number, endedAt: number): string {
-  const start = new Date(startedAt * 1000)
+  const start = new Date(startedAt)
   const date = start.toLocaleDateString([], {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
   })
   const time = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  const secs = Math.round(endedAt - startedAt)
+  const secs = Math.round((endedAt - startedAt) / 1000)
   if (!Number.isFinite(secs) || secs <= 0) return `${date} at ${time}`
   const dur = secs < 60 ? `${String(secs)}s` : `${String(Math.floor(secs / 60))}m ${String(secs % 60)}s`
   return `${date} at ${time} · seen for ${dur}`

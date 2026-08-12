@@ -13,16 +13,19 @@ type Props = {
   onPress?: () => void
 }
 
-/** Formats a sighting's wall-clock time; the section header carries the date. */
-function formatTime(epochSeconds: number): string {
-  return new Date(epochSeconds * 1000).toLocaleTimeString([], {
+/**
+ * Formats a sighting's wall-clock time; the section header carries the date.
+ * `started_at` is epoch milliseconds — the recorder stores `toMs(ts)`.
+ */
+function formatTime(epochMs: number): string {
+  return new Date(epochMs).toLocaleTimeString([], {
     hour: 'numeric',
     minute: '2-digit',
   })
 }
 
 function formatDuration(startedAt: number, endedAt: number): string | null {
-  const secs = Math.round(endedAt - startedAt)
+  const secs = Math.round((endedAt - startedAt) / 1000)
   if (!Number.isFinite(secs) || secs <= 0) return null
   if (secs < 60) return `${String(secs)}s`
   return `${String(Math.floor(secs / 60))}m ${String(secs % 60)}s`
