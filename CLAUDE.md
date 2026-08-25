@@ -101,13 +101,14 @@ go vet ./...
 
 **Architecture:**
 - `main.go` wires all components. Routes under `/api` require JWT auth except `/api/auth/login` and the `/api/cameras/:id/frames` WebSocket (consumed by face-service). User management under `/api/users` additionally requires the admin role.
-- `stream/` — each camera gets a `Relay` that FFmpeg-transcodes RTSP to HLS segments written to `/tmp/sentry/streams/<camera-id>/`. Frames are also fanned out to subscribers via channels for the face-service to consume.
+- `stream/` — each camera gets a `Relay` that FFmpeg-transcodes RTSP to HLS segments written to `/tmp/sentry/streams/<camera-id>/`. Frames are also fanned out to subscribers via channels for the face-service to consume. Two things guard against a wedged stream, and both must stay: the RTSP ffmpeg carries `-timeout` (`rtspSocketTimeout`, µs, before `-i`) so it exits on a silent socket, and `relay.sourceLoop` runs a watchdog that kills and restarts any source delivering no frames for `stallTimeout`. Without them a camera that stops sending without closing its TCP connection leaves ffmpeg blocked in `poll()` forever and the stream reports `reconnecting` until the process restarts. ffmpeg stderr is captured into the log (credentials redacted by `redactURL`) — do not let it go back to `/dev/null`.
 - `face/` — `client.go` calls the Python face-service REST API; `proxy.go` reverse-proxies `/api/persons/*` and `/api/augmentation/*` to it and `/face/cameras/{id}/ws` (detection WebSocket) to the face-service's `/cameras/{id}/ws`. `SyncFromStore` + `RunSyncLoop` keep face-service's camera list in sync with `cameras.json`.
 - `push/` — `listener.go` subscribes to the face-service detection WebSocket per camera and emits one notification per sighting event on `track_confirmed` (per-frame `detections` never notify); `notifier.go` evaluates each subscription's notification policy — `every` (default), `quiet_period` (suppress if the person was seen less than `known_quiet_hours`/`unknown_quiet_hours` ago; per person across cameras for knowns, per camera for unknowns), `first_of_day` (first sighting per local calendar day) — reading last-seen state from the events table, then sends batched push via the Expo Push API with `event_id` in the payload. Policy is configured per subscription via `POST /api/push/register` (`notify_known_mode`, `notify_unknown_mode`, `known_quiet_hours`, `unknown_quiet_hours`).
 - `events/` — sighting events. `recorder.go` consumes track lifecycle messages (`track_confirmed`/`track_updated`/`track_ended`) dispatched by `push/listener.go`, persisting one event per confirmed track with a best-face thumbnail (`data/thumbs/`). `clips.go` copies live HLS segments from confirm time (pre-roll ≈ 10s) until track end + 5s and stitches them losslessly into `data/clips/<event_id>.mp4` (cap 2 min). `retention.go` expires clips after `SENTRY_CLIP_RETENTION_HOURS` and deletes event rows + thumbs after `SENTRY_EVENT_RETENTION_DAYS`. REST surface: `/api/events` (list/detail/thumb/clip/label — labeling enrolls the crop via the face-service and retro-labels matching unknowns).
-- `storage/json_store.go` — camera config persisted to `data/cameras.json`. Cameras have an optional `snapshot_url` (HTTP JPEG endpoint) used for per-camera still previews without starting a full HLS stream. The web frontend fetches `snapshot_url` directly (it runs on the same network as the cameras); the mobile app cannot, so `handlers/snapshot.go` exposes `GET /api/cameras/:id/snapshot`, which fetches the camera-side URL from inside the private network and relays the JPEG over the authenticated API connection.
+- `storage/json_store.go` — camera config persisted to `data/cameras.json`. Cameras have an optional `snapshot_url` (HTTP JPEG endpoint) used for per-camera still previews without starting a full HLS stream. The web frontend fetches `snapshot_url` directly (it runs on the same network as the cameras); the mobile app cannot, so `handlers/snapshot.go` exposes `GET /api/cameras/:id/snapshot`, which fetches the camera-side URL from inside the private network and relays the JPEG over the authenticated API connection. Credentials are carried in the `snapshot_url` userinfo but are *never* sent as Basic-from-URL — Hikvision-style cameras reject that. The relay strips the userinfo, and on a `401` with a `Digest` challenge it completes an RFC 2617 `qop=auth` handshake by hand (`net/http` has no digest support) and retries; `auth-int` is not implemented.
 - `db/db.go` — SQLite (`modernc.org/sqlite`) for users and push subscriptions.
 - HLS segments are served statically at `/hls` → `/tmp/sentry/streams/`.
+- `GET /health/streams` (unauthenticated, outside `/api`, so healthchecks can poll it) reports per-camera `status`/`stalled`/`last_frame_age_seconds`; `?strict=1` returns 503 when any camera is stalled. It deliberately exposes no URLs or credentials. `/health` remains pure liveness — it stayed 200 through a ten-day outage in which every camera was wedged.
 
 ## Face Service (Python)
 
@@ -137,7 +138,7 @@ go vet ./...
 ```bash
 cd frontend
 npm run dev       # dev server on :5173
-npm run build     # tsc + vite build
+npm run build     # tsc -b + vite build; this is also the only typecheck (no lint script exists)
 ```
 
 **Stack:** React 19, React Router v7, TanStack Query v5, Zustand, Tailwind CSS, hls.js, Lucide icons.
@@ -181,6 +182,15 @@ cd mobile && npx expo start --dev-client             # hot reload on device
 
 Build profiles live in `mobile/eas.json` (`development` = dev client / internal, `preview` = internal, `production` = store). App versioning uses `appVersionSource: remote` — EAS auto-increments the iOS build number on production builds, so don't bump it in `app.json`. TestFlight: `eas build --profile production --platform ios` then `eas submit --profile production --platform ios` (requires an app record in App Store Connect for bundle id `com.dim.sentry`). Remote push requires an APNs key registered with EAS credentials.
 
+## Repository Gotchas
+
+- `frontend/node_modules/` is **tracked in git** (~8k files) even though `.gitignore` lists
+  `node_modules/` — the ignore rule was added after the files were committed, so it has no effect
+  on them. Expect `git status` to show churn under `frontend/node_modules/.vite/` after any
+  frontend dev run; leave those changes out of commits, and exclude the path when grepping the
+  repo. `mobile/node_modules/` is correctly ignored.
+- `.claude/` and `.env` are gitignored; `.env.example` is the tracked template.
+
 ## Testing
 
 **Backend (Go):**
@@ -208,6 +218,16 @@ No `pyproject.toml`/`pytest.ini` — run pytest from `face-service/` so `tests/`
 # Press q or Esc to exit
 ```
 Use this to isolate whether a recognition failure is in the face-service or in the RTSP/FFmpeg/HLS pipeline. `tests/ci/` is reserved for future headless tests.
+
+**Diagnosing a deployed stack (Coolify host):**
+```bash
+./scripts/sentry-doctor.sh            # container + /health/streams + hung-ffmpeg detection
+./scripts/sentry-doctor.sh --probe    # also test-dial every camera's RTSP URL from inside the container
+./scripts/sentry-doctor.sh --restart  # restart the backend only if something is actually stalled
+```
+Exits non-zero when a camera is stalled, so cron or an uptime monitor can alert on it. The hung-ffmpeg check
+samples `/proc/<pid>/stat` twice: an RTSP reader alive but burning zero CPU is blocked, not idle. Note that
+`ps` is unavailable in the backend image (`debian:bookworm-slim` without `procps`) — inspect `/proc` directly.
 
 **Fake camera sources for local dev (no real camera needed):**
 ```bash

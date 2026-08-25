@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,12 +30,27 @@ func NewSource(url string) FrameSource {
 
 // ─── RTSP source ────────────────────────────────────────────────────────────
 
+// rtspSocketTimeout bounds how long ffmpeg will wait on a silent RTSP socket
+// before giving up on it.
+//
+// This is not optional. An IP camera that stops sending without closing its TCP
+// connection leaves the socket ESTABLISHED, and ffmpeg's default is to block in
+// poll() forever — the read never returns, so scanJPEGs never returns, cmd.Wait
+// is never reached, and the reconnect loop below never runs. The stream then
+// sits in "reconnecting" until the process is restarted. With -timeout set,
+// ffmpeg exits on a stall and the loop recovers on its own.
+//
+// ffmpeg 5.x names this option -timeout for the RTSP demuxer (it was -stimeout
+// before 5.0) and takes microseconds. It must precede -i to bind to the input.
+const rtspSocketTimeout = 10 * time.Second
+
 // RTSPSource pulls JPEG frames from an RTSP stream using a local ffmpeg process.
 type RTSPSource struct{ url string }
 
 func (s *RTSPSource) URL() string { return s.url }
 
 func (s *RTSPSource) Run(ctx context.Context, out chan<- []byte) {
+	safeURL := redactURL(s.url)
 	for {
 		if ctx.Err() != nil {
 			return
@@ -42,6 +58,7 @@ func (s *RTSPSource) Run(ctx context.Context, out chan<- []byte) {
 		cmd := exec.CommandContext(ctx, "ffmpeg",
 			"-loglevel", "error",
 			"-rtsp_transport", "tcp",
+			"-timeout", strconv.FormatInt(rtspSocketTimeout.Microseconds(), 10),
 			"-fflags", "nobuffer",
 			"-i", s.url,
 			"-map", "0:v:0",
@@ -50,24 +67,25 @@ func (s *RTSPSource) Run(ctx context.Context, out chan<- []byte) {
 			"-q:v", "5",
 			"pipe:1",
 		)
+		cmd.Stderr = newFFmpegLogWriter("rtsp "+safeURL, s.url)
 		r, err := cmd.StdoutPipe()
 		if err != nil {
-			log.Printf("[source] rtsp pipe error %s: %v", s.url, err)
+			log.Printf("[source] rtsp pipe error %s: %v", safeURL, err)
 			sleepCtx(ctx, 3*time.Second)
 			continue
 		}
 		if err := cmd.Start(); err != nil {
-			log.Printf("[source] rtsp ffmpeg start %s: %v", s.url, err)
+			log.Printf("[source] rtsp ffmpeg start %s: %v", safeURL, err)
 			sleepCtx(ctx, 3*time.Second)
 			continue
 		}
-		log.Printf("[source] rtsp started for %s", s.url)
+		log.Printf("[source] rtsp started for %s", safeURL)
 		scanJPEGs(ctx, r, out)
 		cmd.Wait()
 		if ctx.Err() != nil {
 			return
 		}
-		log.Printf("[source] rtsp lost %s, reconnecting in 3s", s.url)
+		log.Printf("[source] rtsp lost %s, reconnecting in 3s", safeURL)
 		sleepCtx(ctx, 3*time.Second)
 	}
 }
@@ -83,17 +101,18 @@ func (s *WSSource) URL() string { return s.url }
 var wsDialer = websocket.Dialer{HandshakeTimeout: 10 * time.Second}
 
 func (s *WSSource) Run(ctx context.Context, out chan<- []byte) {
+	safeURL := redactURL(s.url)
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 		conn, _, err := wsDialer.DialContext(ctx, s.url, nil)
 		if err != nil {
-			log.Printf("[source] ws connect %s: %v; retry in 3s", s.url, err)
+			log.Printf("[source] ws connect %s: %v; retry in 3s", safeURL, err)
 			sleepCtx(ctx, 3*time.Second)
 			continue
 		}
-		log.Printf("[source] ws connected to %s", s.url)
+		log.Printf("[source] ws connected to %s", safeURL)
 		for {
 			if ctx.Err() != nil {
 				conn.Close()
@@ -101,7 +120,7 @@ func (s *WSSource) Run(ctx context.Context, out chan<- []byte) {
 			}
 			mt, data, err := conn.ReadMessage()
 			if err != nil {
-				log.Printf("[source] ws read from %s: %v", s.url, err)
+				log.Printf("[source] ws read from %s: %v", safeURL, err)
 				break
 			}
 			if mt == websocket.BinaryMessage && len(data) > 0 {
@@ -117,7 +136,7 @@ func (s *WSSource) Run(ctx context.Context, out chan<- []byte) {
 		if ctx.Err() != nil {
 			return
 		}
-		log.Printf("[source] ws lost %s, reconnecting in 3s", s.url)
+		log.Printf("[source] ws lost %s, reconnecting in 3s", safeURL)
 		sleepCtx(ctx, 3*time.Second)
 	}
 }

@@ -118,6 +118,10 @@ func main() {
 	// Handlers
 	cameraH := handlers.NewCameraHandler(store, manager, faceClient)
 	cameraH.SetWatcher(listener)
+	// Stream health is deliberately outside /api: healthchecks and uptime
+	// monitors cannot carry a JWT. See CameraHandler.StreamsHealth.
+	r.GET("/health/streams", cameraH.StreamsHealth)
+
 	authH := handlers.NewAuthHandler(database, jwtMgr)
 	userH := handlers.NewUserHandler(database)
 	pushH := handlers.NewPushHandler(database)
