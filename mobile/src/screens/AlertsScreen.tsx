@@ -41,8 +41,8 @@ function startOfDay(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
 }
 
-function dayLabel(epochSeconds: number): string {
-  const ts = epochSeconds * 1000
+/** `started_at` is epoch milliseconds — the recorder stores `toMs(ts)`. */
+function dayLabel(ts: number): string {
   const today = startOfDay(new Date())
   const yesterday = today - 86400000
 

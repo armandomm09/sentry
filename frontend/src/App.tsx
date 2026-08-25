@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Sidebar } from './components/layout/Sidebar'
+import { Alerts } from './pages/Alerts'
 import { Dashboard } from './pages/Dashboard'
 import { Login } from './pages/Login'
 import { Settings } from './pages/Settings'
@@ -14,17 +15,6 @@ const queryClient = new QueryClient({
     },
   },
 })
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="flex items-center justify-center h-full">
-      <div className="text-center">
-        <div className="font-sans font-bold text-[22px] text-fg-1">{title}</div>
-        <div className="font-sans text-[13px] text-fg-3 mt-2">Coming soon.</div>
-      </div>
-    </div>
-  )
-}
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('sentry_token')
@@ -48,7 +38,7 @@ export default function App() {
                     <Routes>
                       <Route path="/"         element={<Dashboard />} />
                       <Route path="/health"   element={<SystemHealth />} />
-                      <Route path="/alerts"   element={<PlaceholderPage title="Alerts" />} />
+                      <Route path="/alerts"   element={<Alerts />} />
                       <Route path="/settings" element={<Settings />} />
                     </Routes>
                   </main>

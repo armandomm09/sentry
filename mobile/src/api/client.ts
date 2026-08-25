@@ -360,3 +360,41 @@ export function eventThumbUrl(baseUrl: string, eventId: string): string {
 export function eventClipUrl(baseUrl: string, eventId: string): string {
   return `${baseUrl}/api/events/${encodeURIComponent(eventId)}/clip`
 }
+
+/**
+ * Result of naming an unrecognized sighting.
+ *
+ * `retro_labeled` counts *other* past unknown sightings the backend matched to
+ * the same face and relabeled in the same call.
+ */
+export type LabelEventResult = {
+  labeled_person_id: string
+  retro_labeled: number
+}
+
+/**
+ * Name an unknown sighting, enrolling its face crop for future recognition.
+ *
+ * Pass exactly one of `personId` (an existing person) or `newPersonName` (create
+ * one) — the backend rejects both together. The photo enrolled is the event's
+ * thumbnail, the same image `eventThumbUrl` serves, so what the user previews is
+ * what gets added.
+ */
+export async function labelEvent(
+  baseUrl: string,
+  token: string,
+  eventId: string,
+  target: { personId: string } | { newPersonName: string },
+): Promise<LabelEventResult> {
+  const body =
+    'personId' in target
+      ? { person_id: target.personId }
+      : { new_person_name: target.newPersonName }
+
+  const res = await fetch(`${baseUrl}/api/events/${encodeURIComponent(eventId)}/label`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  })
+  return handleResponse<LabelEventResult>(res)
+}
