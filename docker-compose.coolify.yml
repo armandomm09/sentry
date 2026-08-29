@@ -1,0 +1,83 @@
+# docker-compose.coolify.yml — production deployment on xpark01 (Coolify)
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# docker-compose.yml is the portable CPU base: it must keep working on machines
+# with no NVIDIA runtime (macOS dev boxes), so it cannot carry a GPU device
+# reservation. Locally, ./start.sh layers docker-compose.gpu.yml on top when it
+# detects a GPU.
+#
+# Coolify has no equivalent of `-f a.yml -f b.yml` — it deploys exactly ONE
+# compose file (Settings -> Docker Compose Location). So this file is the base
+# and the GPU overlay pre-merged, for the one host that always has a GPU.
+#
+# KEEP IN SYNC: any change to docker-compose.yml or docker-compose.gpu.yml
+# should be mirrored here. The GPU-specific parts are marked [GPU].
+
+name: sentry
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    ports:
+      - "8081:9305"
+    volumes:
+      - ./backend/data:/app/data
+      - hls_streams:/tmp/sentry/streams
+    environment:
+      - PORT=9305
+      - SENTRY_DATA_DIR=/app/data
+      - FACE_SERVICE_URL=http://face-service:9306
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - face-service
+    restart: unless-stopped
+
+  face-service:
+    build:
+      context: .
+      dockerfile: docker/face-service/Dockerfile
+      args:
+        GPU: "1"                                    # [GPU] build the CUDA ORT wheel into the image
+    volumes:
+      - ./face-service/data:/app/data
+      # [GPU] host CUDA 13.0 runtime libs. The aarch64 ORT wheel links against
+      # libcublasLt.so.13 / libcudart.so.13, which the pip nvidia-*-cu12
+      # packages do not provide.
+      - /usr/local/cuda-13.0/targets/sbsa-linux/lib:/usr/local/cuda/lib64:ro
+    environment:
+      - FACE_SERVICE_HOST=0.0.0.0
+      - FACE_SERVICE_PORT=9306
+      - FACE_SERVICE_DATA_DIR=/app/data
+      - FACE_SERVICE_RELAY_URL=ws://backend:9305
+      # [GPU] CUDA first, CPU retained as a last-resort fallback so a CUDA
+      # failure degrades instead of taking the service down.
+      - FACE_SERVICE_PROVIDERS=CUDAExecutionProvider,CPUExecutionProvider
+      # [GPU] mounted host CUDA must precede the pip nvidia libs on the path.
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia                        # [GPU]
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    ports:
+      - "5174:80"
+    volumes:
+      - hls_streams:/hls:ro
+    depends_on:
+      - backend
+      - face-service
+    restart: unless-stopped
+
+volumes:
+  hls_streams:

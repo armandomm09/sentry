@@ -105,6 +105,23 @@ Force a specific mode:
 ./start.sh --logs   # start and follow logs
 ```
 
+### Deployed on xpark01 (Coolify)
+
+Coolify deploys **one** compose file — it has no `-f a.yml -f b.yml` — so the
+production deployment uses `docker-compose.coolify.yml`, which is
+`docker-compose.yml` and `docker-compose.gpu.yml` pre-merged. It is set in
+Coolify under *Settings -> Docker Compose Location* as
+`/docker-compose.coolify.yml`.
+
+`docker-compose.yml` deliberately stays CPU-only so it keeps working on dev
+machines with no NVIDIA runtime. **If you change `docker-compose.yml` or
+`docker-compose.gpu.yml`, mirror the change into `docker-compose.coolify.yml`**
+or production will silently drift (most likely back onto the CPU, which is the
+bug this file was added to fix — inference ran on 6 CPU workers at ~1875% CPU
+while the GB10 sat idle; on GPU the same model runs ~20x faster).
+
+Auto-deploy is enabled: pushing to `main` rebuilds and redeploys.
+
 ### Service URLs
 
 | Service | URL |
